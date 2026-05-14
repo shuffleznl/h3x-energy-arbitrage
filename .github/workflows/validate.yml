@@ -1,0 +1,25 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Compile Python files
+        run: python -m compileall custom_components tools
+      - name: Validate HACS structure
+        run: python tools/validate_hacs_structure.py
+      - name: Validate JSON
+        run: |
+          python -m json.tool hacs.json > /dev/null
+          python -m json.tool custom_components/h3x_energy_arbitrage/manifest.json > /dev/null
+          python -m json.tool custom_components/h3x_energy_arbitrage/strings.json > /dev/null
+          python -m json.tool custom_components/h3x_energy_arbitrage/translations/en.json > /dev/null
