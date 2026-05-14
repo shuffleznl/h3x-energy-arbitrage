@@ -21,6 +21,16 @@ from .const import DOMAIN
 from .coordinator import H3XArbitrageCoordinator
 
 
+UNRECORDED_PLAN_ATTRIBUTES = frozenset(
+    {
+        "dispatch_plan",
+        "price_slots",
+        "today_slots",
+        "tomorrow_slots",
+    }
+)
+
+
 @dataclass(frozen=True, kw_only=True)
 class H3XArbitrageSensorDescription(SensorEntityDescription):
     """Describe an arbitrage sensor."""
@@ -31,7 +41,20 @@ class H3XArbitrageSensorDescription(SensorEntityDescription):
 
 def _decision_attributes(data: dict[str, Any]) -> dict[str, Any]:
     """Return rich diagnostics for the decision sensor."""
-    attributes = dict(data.get("attributes") or {})
+    raw_attributes = dict(data.get("attributes") or {})
+    attributes = {
+        key: raw_attributes.get(key)
+        for key in (
+            "area",
+            "currency",
+            "min_soc",
+            "max_soc",
+            "capacity_kwh",
+            "temperature_guard",
+            "control_enabled",
+            "nordpool_resolution_minutes",
+        )
+    }
     attributes.update(
         {
             "reason": data.get("reason"),
@@ -67,8 +90,6 @@ def _price_plan_attributes(data: dict[str, Any]) -> dict[str, Any]:
         "resolution_minutes": data.get("resolution_minutes"),
         "updated_at": data.get("updated_at"),
         "price_slots": attributes.get("price_slots", []),
-        "today_slots": attributes.get("today_slots", []),
-        "tomorrow_slots": attributes.get("tomorrow_slots", []),
         "dispatch_plan": attributes.get("dispatch_plan", []),
     }
 
@@ -139,7 +160,6 @@ SENSORS: tuple[H3XArbitrageSensorDescription, ...] = (
         name="Planned charge energy",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
-        state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:battery-plus",
         value_fn=lambda data: data.get("planned_charge_kwh"),
     ),
@@ -149,7 +169,6 @@ SENSORS: tuple[H3XArbitrageSensorDescription, ...] = (
         name="Planned discharge energy",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
-        state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:battery-minus",
         value_fn=lambda data: data.get("planned_discharge_kwh"),
     ),
@@ -196,6 +215,7 @@ async def async_setup_entry(
 class H3XArbitrageSensor(CoordinatorEntity[H3XArbitrageCoordinator], SensorEntity):
     """A diagnostic sensor for the arbitrage controller."""
 
+    _unrecorded_attributes = UNRECORDED_PLAN_ATTRIBUTES
     entity_description: H3XArbitrageSensorDescription
     _attr_has_entity_name = True
 
