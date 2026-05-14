@@ -12,14 +12,28 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfEnergy, UnitOfPower
+from homeassistant.const import UnitOfEnergy, UnitOfPower, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import (
+    CONF_CURRENCY,
+    DEFAULT_CURRENCY,
+    DOMAIN,
+    NORDPOOL_CONF_CURRENCY,
+    NORDPOOL_DOMAIN,
+)
 from .coordinator import H3XArbitrageCoordinator
 
+
+MONETARY_SENSOR_KEYS = frozenset(
+    {
+        "first_slot_value",
+        "estimated_savings",
+        "estimated_savings_today",
+    }
+)
 
 UNRECORDED_PLAN_ATTRIBUTES = frozenset(
     {
@@ -132,24 +146,20 @@ SENSORS: tuple[H3XArbitrageSensorDescription, ...] = (
         key="current_price",
         translation_key="current_price",
         name="Current price",
-        native_unit_of_measurement="currency/kWh",
-        state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda data: data.get("current_price"),
     ),
     H3XArbitrageSensorDescription(
         key="first_slot_value",
         translation_key="first_slot_value",
         name="First slot value",
-        native_unit_of_measurement="currency",
-        state_class=SensorStateClass.MEASUREMENT,
+        device_class=SensorDeviceClass.MONETARY,
         value_fn=lambda data: data.get("estimated_first_slot_value"),
     ),
     H3XArbitrageSensorDescription(
         key="estimated_savings",
         translation_key="estimated_savings",
         name="Estimated savings",
-        native_unit_of_measurement="currency",
-        state_class=SensorStateClass.MEASUREMENT,
+        device_class=SensorDeviceClass.MONETARY,
         icon="mdi:cash-multiple",
         value_fn=lambda data: data.get("estimated_plan_value"),
     ),
@@ -157,8 +167,7 @@ SENSORS: tuple[H3XArbitrageSensorDescription, ...] = (
         key="estimated_savings_today",
         translation_key="estimated_savings_today",
         name="Estimated savings today",
-        native_unit_of_measurement="currency",
-        state_class=SensorStateClass.MEASUREMENT,
+        device_class=SensorDeviceClass.MONETARY,
         icon="mdi:cash-clock",
         value_fn=lambda data: data.get("estimated_today_value"),
     ),
@@ -192,7 +201,8 @@ SENSORS: tuple[H3XArbitrageSensorDescription, ...] = (
         key="resolution_minutes",
         translation_key="resolution_minutes",
         name="Price resolution",
-        native_unit_of_measurement="min",
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        device_class=SensorDeviceClass.DURATION,
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda data: data.get("resolution_minutes"),
     ),
@@ -234,6 +244,7 @@ class H3XArbitrageSensor(CoordinatorEntity[H3XArbitrageCoordinator], SensorEntit
         """Initialize the sensor."""
         super().__init__(coordinator)
         self.entity_description = description
+        self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_{description.key}"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
@@ -248,8 +259,43 @@ class H3XArbitrageSensor(CoordinatorEntity[H3XArbitrageCoordinator], SensorEntit
         return self.entity_description.value_fn(self.coordinator.data or {})
 
     @property
+    def native_unit_of_measurement(self) -> str | None:
+        """Return dynamic units for price and monetary plan sensors."""
+        if self.entity_description.key == "current_price":
+            return f"{self._currency_code()}/{UnitOfEnergy.KILO_WATT_HOUR}"
+        if self.entity_description.key in MONETARY_SENSOR_KEYS:
+            return self._currency_code()
+        return self.entity_description.native_unit_of_measurement
+
+    @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return optional attributes."""
         if self.entity_description.extra_fn is None:
             return None
         return self.entity_description.extra_fn(self.coordinator.data or {})
+
+    def _currency_code(self) -> str:
+        """Return the active ISO 4217 currency code."""
+        data = self.coordinator.data or {}
+        attributes = dict(data.get("attributes") or {})
+        currency = str(attributes.get("currency") or "").strip().upper()
+        if currency and currency != DEFAULT_CURRENCY.upper():
+            return currency
+
+        configured = str(
+            self._entry.options.get(
+                CONF_CURRENCY,
+                self._entry.data.get(CONF_CURRENCY, DEFAULT_CURRENCY),
+            )
+        ).strip().upper()
+        if configured and configured != DEFAULT_CURRENCY.upper():
+            return configured
+
+        for entry in self.coordinator.hass.config_entries.async_entries(
+            NORDPOOL_DOMAIN
+        ):
+            currency = str(entry.data.get(NORDPOOL_CONF_CURRENCY) or "").strip().upper()
+            if currency:
+                return currency
+
+        return "EUR"

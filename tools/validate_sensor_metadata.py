@@ -30,6 +30,14 @@ def main() -> None:
 
     if "_unrecorded_attributes = UNRECORDED_PLAN_ATTRIBUTES" not in source:
         raise AssertionError("large chart arrays must be excluded from recorder")
+    if "native_unit_of_measurement='currency'" in source:
+        raise AssertionError("literal currency placeholder must not be used")
+    if "native_unit_of_measurement='currency/kWh'" in source:
+        raise AssertionError("literal currency/kWh placeholder must not be used")
+    if "def native_unit_of_measurement" not in source:
+        raise AssertionError("currency units must be resolved dynamically")
+    if "UnitOfTime.MINUTES" not in source:
+        raise AssertionError("price resolution must use the Home Assistant minute unit")
 
     descriptions = [
         node
@@ -46,6 +54,30 @@ def main() -> None:
         key = ast.literal_eval(key_node) if key_node is not None else None
         device_class = kwargs.get("device_class")
         state_class = kwargs.get("state_class")
+        if key in {"first_slot_value", "estimated_savings", "estimated_savings_today"}:
+            if (
+                device_class is None
+                or dotted_name(device_class) != "SensorDeviceClass.MONETARY"
+            ):
+                raise AssertionError(f"{key} must use the monetary device class")
+            if "native_unit_of_measurement" in kwargs:
+                raise AssertionError(f"{key} must use the dynamic currency unit")
+            if state_class is not None:
+                raise AssertionError(f"{key} is a plan estimate, not statistics")
+        if key == "current_price":
+            if "native_unit_of_measurement" in kwargs:
+                raise AssertionError("current_price must use the dynamic price unit")
+            if state_class is not None:
+                raise AssertionError("current_price must not use placeholder statistics")
+        if key == "resolution_minutes":
+            unit = kwargs.get("native_unit_of_measurement")
+            if unit is None or dotted_name(unit) != "UnitOfTime.MINUTES":
+                raise AssertionError("resolution_minutes must use UnitOfTime.MINUTES")
+            if (
+                device_class is None
+                or dotted_name(device_class) != "SensorDeviceClass.DURATION"
+            ):
+                raise AssertionError("resolution_minutes must use duration device class")
         if key == "price_plan":
             if "native_unit_of_measurement" in kwargs:
                 raise AssertionError("price_plan must be unitless to avoid LTS warnings")
