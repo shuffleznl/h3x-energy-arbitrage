@@ -46,6 +46,11 @@ def main() -> None:
         key = ast.literal_eval(key_node) if key_node is not None else None
         device_class = kwargs.get("device_class")
         state_class = kwargs.get("state_class")
+        if key == "price_plan":
+            if "native_unit_of_measurement" in kwargs:
+                raise AssertionError("price_plan must be unitless to avoid LTS warnings")
+            if state_class is not None:
+                raise AssertionError("price_plan must not create long-term statistics")
         if (
             device_class is not None
             and dotted_name(device_class) == "SensorDeviceClass.ENERGY"

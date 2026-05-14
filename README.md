@@ -58,7 +58,7 @@ After the decision sensors look correct, enable automatic control from the integ
 - `sensor.h3x_energy_arbitrage_price_resolution`
 - `sensor.h3x_energy_arbitrage_price_slots_available`
 
-The `price_plan` sensor carries `price_slots` and `dispatch_plan` attributes for Lovelace charting. These large chart arrays are excluded from recorder history to keep the Home Assistant database small.
+The `price_plan` sensor is a unitless diagnostic carrier for Lovelace charting. It carries `price_slots` and `dispatch_plan` attributes, and those large chart arrays are excluded from recorder history to keep the Home Assistant database small. Use `current_price` for the statistical price sensor.
 
 ## Economics And Limits
 
