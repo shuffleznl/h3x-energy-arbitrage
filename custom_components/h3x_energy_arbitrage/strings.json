@@ -17,10 +17,12 @@
           "load_power_entity": "House load power sensor entity",
           "grid_import_power_entity": "Real-time grid import power sensor entity",
           "grid_import_average_power_entity": "Averaged grid import power sensor entity",
+          "battery_module_count_entity": "Battery module count sensor entity",
           "bms_temperature_entity": "BMS temperature sensor entity",
           "charge_limit_soc_entity": "Charge limit SOC number entity",
           "discharge_limit_soc_entity": "Discharge limit SOC number entity",
-          "battery_capacity_kwh": "Battery capacity kWh",
+          "battery_module_count": "Battery module count",
+          "battery_capacity_kwh": "Battery capacity kWh, derived from module count",
           "min_soc": "Minimum SOC %",
           "reserve_soc": "Reserve SOC %",
           "max_soc": "Maximum SOC %",
@@ -57,6 +59,7 @@
     "error": {
       "soc_range": "Maximum SOC must be higher than minimum and reserve SOC.",
       "full_charge_threshold_above_target": "The SOC counted as full must be less than or equal to the periodic full-charge target SOC.",
+      "capacity_module_mismatch": "Battery capacity must match the configured Force H3 module count.",
       "peak_below_continuous": "Peak power must be greater than or equal to continuous power.",
       "full_scale_below_peak": "Full-scale inverter power must be greater than or equal to peak power."
     }
@@ -79,10 +82,12 @@
           "load_power_entity": "House load power sensor entity",
           "grid_import_power_entity": "Real-time grid import power sensor entity",
           "grid_import_average_power_entity": "Averaged grid import power sensor entity",
+          "battery_module_count_entity": "Battery module count sensor entity",
           "bms_temperature_entity": "BMS temperature sensor entity",
           "charge_limit_soc_entity": "Charge limit SOC number entity",
           "discharge_limit_soc_entity": "Discharge limit SOC number entity",
-          "battery_capacity_kwh": "Battery capacity kWh",
+          "battery_module_count": "Battery module count",
+          "battery_capacity_kwh": "Battery capacity kWh, derived from module count",
           "min_soc": "Minimum SOC %",
           "reserve_soc": "Reserve SOC %",
           "max_soc": "Maximum SOC %",
@@ -176,6 +181,9 @@
       }
     },
     "number": {
+      "battery_module_count": {
+        "name": "Battery module count"
+      },
       "periodic_full_charge_interval_days": {
         "name": "Periodic full-charge interval"
       },
@@ -191,6 +199,12 @@
       "discharge_spread_max_hours": {
         "name": "Discharge spread maximum window"
       }
+    }
+  },
+  "issues": {
+    "battery_capacity_unconfirmed": {
+      "title": "Confirm Force H3 battery module count",
+      "description": "The arbitrage optimizer is using {modules} Force H3 modules ({capacity} kWh nominal). {warning}. A wrong module count changes planned charge/discharge energy and SOC reserve calculations, so confirm the installed module count before enabling automatic control."
     }
   }
 }

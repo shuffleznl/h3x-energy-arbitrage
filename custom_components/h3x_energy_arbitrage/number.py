@@ -13,8 +13,11 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
+    CONF_BATTERY_MODULE_COUNT,
     CONF_DISCHARGE_SPREAD_MAX_HOURS,
     CONF_DISCHARGE_SPREAD_PRICE_TOLERANCE,
+    FORCE_H3_MAX_MODULES,
+    FORCE_H3_MIN_MODULES,
     CONF_PERIODIC_FULL_CHARGE_INTERVAL_DAYS,
     CONF_PERIODIC_FULL_CHARGE_TARGET_SOC,
     CONF_PERIODIC_FULL_CHARGE_THRESHOLD_SOC,
@@ -31,6 +34,16 @@ class H3XArbitrageNumberDescription(NumberEntityDescription):
 
 
 NUMBERS: tuple[H3XArbitrageNumberDescription, ...] = (
+    H3XArbitrageNumberDescription(
+        key="battery_module_count",
+        translation_key="battery_module_count",
+        name="Battery module count",
+        icon="mdi:battery-sync",
+        native_min_value=float(FORCE_H3_MIN_MODULES),
+        native_max_value=float(FORCE_H3_MAX_MODULES),
+        native_step=1.0,
+        option_key=CONF_BATTERY_MODULE_COUNT,
+    ),
     H3XArbitrageNumberDescription(
         key="periodic_full_charge_interval_days",
         translation_key="periodic_full_charge_interval_days",

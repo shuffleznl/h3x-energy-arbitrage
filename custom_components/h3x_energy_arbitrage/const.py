@@ -19,11 +19,13 @@ CONF_SOC_ENTITY = "soc_entity"
 CONF_LOAD_POWER_ENTITY = "load_power_entity"
 CONF_GRID_IMPORT_POWER_ENTITY = "grid_import_power_entity"
 CONF_GRID_IMPORT_AVERAGE_POWER_ENTITY = "grid_import_average_power_entity"
+CONF_BATTERY_MODULE_COUNT_ENTITY = "battery_module_count_entity"
 CONF_BMS_TEMP_ENTITY = "bms_temperature_entity"
 CONF_CHARGE_LIMIT_SOC_ENTITY = "charge_limit_soc_entity"
 CONF_DISCHARGE_LIMIT_SOC_ENTITY = "discharge_limit_soc_entity"
 
 CONF_BATTERY_CAPACITY_KWH = "battery_capacity_kwh"
+CONF_BATTERY_MODULE_COUNT = "battery_module_count"
 CONF_MIN_SOC = "min_soc"
 CONF_MAX_SOC = "max_soc"
 CONF_RESERVE_SOC = "reserve_soc"
@@ -71,6 +73,9 @@ DEFAULT_GRID_IMPORT_POWER_ENTITY = "sensor.dsmr_reading_electricity_currently_de
 DEFAULT_GRID_IMPORT_AVERAGE_POWER_ENTITY = (
     "sensor.connect_energy_meter_electricity_average"
 )
+DEFAULT_BATTERY_MODULE_COUNT_ENTITY = (
+    "sensor.pylontech_h3x_bridge_battery_module_count"
+)
 DEFAULT_BMS_TEMP_ENTITY = "sensor.pylontech_h3x_bridge_bms_temperature"
 DEFAULT_CHARGE_LIMIT_SOC_ENTITY = "number.pylontech_h3x_bridge_charge_limit_soc"
 DEFAULT_DISCHARGE_LIMIT_SOC_ENTITY = (
@@ -90,10 +95,12 @@ DEFAULTS = {
     CONF_LOAD_POWER_ENTITY: DEFAULT_LOAD_POWER_ENTITY,
     CONF_GRID_IMPORT_POWER_ENTITY: DEFAULT_GRID_IMPORT_POWER_ENTITY,
     CONF_GRID_IMPORT_AVERAGE_POWER_ENTITY: DEFAULT_GRID_IMPORT_AVERAGE_POWER_ENTITY,
+    CONF_BATTERY_MODULE_COUNT_ENTITY: DEFAULT_BATTERY_MODULE_COUNT_ENTITY,
     CONF_BMS_TEMP_ENTITY: DEFAULT_BMS_TEMP_ENTITY,
     CONF_CHARGE_LIMIT_SOC_ENTITY: DEFAULT_CHARGE_LIMIT_SOC_ENTITY,
     CONF_DISCHARGE_LIMIT_SOC_ENTITY: DEFAULT_DISCHARGE_LIMIT_SOC_ENTITY,
-    CONF_BATTERY_CAPACITY_KWH: 20.0,
+    CONF_BATTERY_MODULE_COUNT: 6.0,
+    CONF_BATTERY_CAPACITY_KWH: 30.72,
     CONF_MIN_SOC: 15.0,
     CONF_MAX_SOC: 90.0,
     CONF_RESERVE_SOC: 20.0,
@@ -156,6 +163,9 @@ CURRENCIES = ("auto", "DKK", "EUR", "NOK", "PLN", "SEK")
 RESOLUTIONS = (15, 30, 60)
 TERMINAL_SOC_MODES = ("preserve_current", "reserve_only")
 DISCHARGE_POWER_MODES = ("spread", "max_economic")
+FORCE_H3_MODULE_CAPACITY_KWH = 5.12
+FORCE_H3_MIN_MODULES = 2
+FORCE_H3_MAX_MODULES = 7
 STRATEGY_PROFILES = ("conservative", "typical", "aggressive", "custom")
 STRATEGY_PROFILE_SETTINGS = {
     "conservative": {

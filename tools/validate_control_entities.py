@@ -56,18 +56,31 @@ def main() -> None:
         "discharge_spread_max_hours",
         "grid_import_power_entity",
         "grid_import_average_power_entity",
+        "battery_module_count",
+        "battery_module_count_entity",
+        "battery_capacity_warning",
+        "battery_capacity_unconfirmed",
         "_power_state_w",
         "_shape_discharge_decision",
+        "_battery_configuration",
     ):
         if token not in coordinator_source and token not in const_source:
             raise AssertionError(f"{token} missing from control wiring")
 
     if 'key="reason"' not in sensor_source:
         raise AssertionError("decision reason sensor is missing")
+    if "CONF_BATTERY_CAPACITY_KWH: 20.0" in const_source:
+        raise AssertionError("old 20 kWh scaffold capacity must not be the default")
+    if "FORCE_H3_MODULE_CAPACITY_KWH = 5.12" not in const_source:
+        raise AssertionError("Force H3 module capacity constant is missing")
     if 'key="discharge_power_mode"' not in read(INTEGRATION / "select.py"):
         raise AssertionError("discharge power mode select is missing")
     number_source = read(INTEGRATION / "number.py")
-    for token in ("discharge_spread_price_tolerance", "discharge_spread_max_hours"):
+    for token in (
+        "battery_module_count",
+        "discharge_spread_price_tolerance",
+        "discharge_spread_max_hours",
+    ):
         if token not in number_source:
             raise AssertionError(f"{token} number control is missing")
 

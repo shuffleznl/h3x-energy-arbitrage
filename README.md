@@ -41,6 +41,7 @@ After the decision sensors look correct, enable automatic control from the integ
 | House load | `sensor.pylontech_h3x_bridge_load_power` |
 | Real-time grid import | `sensor.dsmr_reading_electricity_currently_delivered` |
 | Averaged grid import | `sensor.connect_energy_meter_electricity_average` |
+| Battery module count | `sensor.pylontech_h3x_bridge_battery_module_count` |
 | BMS temperature | `sensor.pylontech_h3x_bridge_bms_temperature` |
 | Charge SOC limit | `number.pylontech_h3x_bridge_charge_limit_soc` |
 | Discharge SOC limit | `number.pylontech_h3x_bridge_discharge_limit_soc_eps` |
@@ -70,6 +71,7 @@ The integration exposes Home Assistant control entities so the strategy can be a
 - `select.h3x_energy_arbitrage_strategy_profile`: `conservative`, `typical`, `aggressive`, or `custom`.
 - `select.h3x_energy_arbitrage_end_of_horizon_soc`: preserve the current SOC by the end of the horizon, or allow discharge down to reserve.
 - `select.h3x_energy_arbitrage_discharge_power_mode`: spread discharge over adjacent high-price slots, or keep the maximum economic target power.
+- `number.h3x_energy_arbitrage_battery_module_count`: set the installed Force H3 module count when it is not available from a bridge sensor.
 - `switch.h3x_energy_arbitrage_periodic_full_charge`: enable or disable the periodic full-charge constraint.
 - `number.h3x_energy_arbitrage_periodic_full_charge_interval`, `target_soc`, and `threshold_soc`: tune the periodic full-charge cadence and completion threshold.
 - `number.h3x_energy_arbitrage_discharge_spread_price_tolerance` and `discharge_spread_max_hours`: tune how far and how long discharge can be spread.
@@ -85,7 +87,7 @@ Strategy profiles apply these tradeoffs:
 The optimizer supports:
 
 - 15, 30, and 60 minute price slots,
-- configurable battery capacity, minimum SOC, reserve SOC, maximum SOC, and terminal SOC behavior,
+- Force H3 module-count based battery capacity, minimum SOC, reserve SOC, maximum SOC, and terminal SOC behavior,
 - periodic full-charge/top-balance cycle scheduled into the cheapest available slots,
 - round-trip efficiency,
 - cycle cost and minimum margin,
@@ -101,6 +103,25 @@ Default power settings are `11 kW` continuous and `13.8 kW` peak, with peak powe
 Charging is not intentionally slowed by the discharge spread controls. The optimizer still charges at the cheapest economic speed, capped by inverter power, BMS temperature, SOC limits, and the grid import limit. When DSMR or averaged import sensors are configured, charging headroom is based on the most conservative available reading and accounts for any already-requested battery charge power to avoid self-throttling during an active charge.
 
 Discharge spreading is a post-optimizer shaping step. In `spread` mode, the selected export energy is averaged across consecutive expensive slots that remain within the configured price tolerance and maximum window. In `max_economic` mode, the raw optimizer setpoint is used.
+
+## Battery Capacity
+
+Force H3 capacity is modeled by module count, not by an arbitrary kWh default. The Pylontech Force H3 datasheet lists each FH10050 module as `5.12 kWh`; one inverter stack supports `2` to `7` modules, so nominal capacity is:
+
+| Modules | Nominal capacity |
+| --- | --- |
+| 2 | 10.24 kWh |
+| 3 | 15.36 kWh |
+| 4 | 20.48 kWh |
+| 5 | 25.60 kWh |
+| 6 | 30.72 kWh |
+| 7 | 35.84 kWh |
+
+Your current target system is `6` modules, therefore `30.72 kWh` nominal. The older `20 kWh` default was only a scaffold value and was not read from the inverter or BMS.
+
+The Pylontech Modbus documentation includes a BMS/ESS register for "Module number in series" at offset `0x0036`; with ESS base address `0x1400`, this is register `0x1436` / decimal `5174` on the BMS side. The arbitrage integration does not open its own Modbus connection. Instead, it can consume `sensor.pylontech_h3x_bridge_battery_module_count` if the bridge exposes that value. Until that sensor exists, set the module count manually in the integration options or with the runtime number entity.
+
+Capacity is safety-critical for this optimizer. If the module count is too low, the controller underestimates available energy and may miss profitable discharge/charge windows. If it is too high, it can overestimate energy above reserve and plan charge/discharge energy the physical battery cannot deliver. Existing installs that still have only the old non-multiple capacity value will raise a Home Assistant repair warning until the module count is confirmed.
 
 ## Periodic Full Charge
 

@@ -12,6 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
@@ -19,6 +20,8 @@ from homeassistant.util import dt as dt_util
 from .const import (
     CONF_AREA,
     CONF_BATTERY_CAPACITY_KWH,
+    CONF_BATTERY_MODULE_COUNT,
+    CONF_BATTERY_MODULE_COUNT_ENTITY,
     CONF_BMS_TEMP_ENTITY,
     CONF_BUY_COST_ADDER,
     CONF_CHARGE_LIMIT_SOC_ENTITY,
@@ -65,6 +68,9 @@ from .const import (
     CONF_USER_EMS_MODE,
     DEFAULTS,
     DOMAIN,
+    FORCE_H3_MAX_MODULES,
+    FORCE_H3_MIN_MODULES,
+    FORCE_H3_MODULE_CAPACITY_KWH,
     NORDPOOL_CONF_AREAS,
     NORDPOOL_CONF_CURRENCY,
     NORDPOOL_DOMAIN,
@@ -74,6 +80,7 @@ from .const import (
 LOGGER = logging.getLogger(__name__)
 STORAGE_VERSION = 1
 LAST_FULL_CHARGE_KEY = "last_periodic_full_charge_at"
+BATTERY_CAPACITY_ISSUE_ID = "battery_capacity_unconfirmed"
 
 
 @dataclass(slots=True)
@@ -88,6 +95,16 @@ class PriceSlot:
     def duration_hours(self) -> float:
         """Return the full slot duration in hours."""
         return max((self.end - self.start).total_seconds() / 3600, 0.0)
+
+
+@dataclass(slots=True)
+class BatteryConfiguration:
+    """Resolved Force H3 battery stack configuration."""
+
+    module_count: int
+    capacity_kwh: float
+    source: str
+    warning: str | None = None
 
 
 @dataclass(slots=True)
@@ -211,6 +228,10 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         if threshold_soc > target_soc:
             options[CONF_PERIODIC_FULL_CHARGE_THRESHOLD_SOC] = target_soc
+        if CONF_BATTERY_MODULE_COUNT in options:
+            modules = self._clamp_module_count(options[CONF_BATTERY_MODULE_COUNT])
+            options[CONF_BATTERY_MODULE_COUNT] = float(modules)
+            options[CONF_BATTERY_CAPACITY_KWH] = self._capacity_for_modules(modules)
         if CONF_DISCHARGE_SPREAD_PRICE_TOLERANCE in options:
             options[CONF_DISCHARGE_SPREAD_PRICE_TOLERANCE] = min(
                 max(float(options[CONF_DISCHARGE_SPREAD_PRICE_TOLERANCE]), 0.0),
@@ -231,6 +252,7 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self._async_record_full_charge_if_reached(current_soc)
             slots = await self._fetch_price_slots()
             decision = self._compute_decision(slots)
+            self._update_battery_capacity_issue(decision)
         except Exception as err:  # pylint: disable=broad-except
             LOGGER.exception("Failed to compute arbitrage decision")
             decision = Decision(action="failsafe", reason=str(err))
@@ -383,7 +405,8 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if soc is None:
             return Decision(action="failsafe", reason="battery SOC entity unavailable")
 
-        capacity_kwh = max(float(self._option(CONF_BATTERY_CAPACITY_KWH)), 0.1)
+        battery_config = self._battery_configuration()
+        capacity_kwh = battery_config.capacity_kwh
         min_soc = max(float(self._option(CONF_MIN_SOC)), 0.0)
         reserve_soc = max(float(self._option(CONF_RESERVE_SOC)), min_soc)
         normal_max_soc = min(
@@ -454,6 +477,10 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "normal_max_soc": normal_max_soc,
                 "max_soc": max_soc,
                 "capacity_kwh": capacity_kwh,
+                "battery_module_count": battery_config.module_count,
+                "battery_module_capacity_kwh": FORCE_H3_MODULE_CAPACITY_KWH,
+                "battery_capacity_source": battery_config.source,
+                "battery_capacity_warning": battery_config.warning,
                 "temperature_guard": temp_reason,
                 "control_enabled": bool(self._option(CONF_CONTROL_ENABLED)),
                 "strategy_profile": str(self._option(CONF_STRATEGY_PROFILE)),
@@ -535,6 +562,121 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
 
         return decision
+
+    def _battery_configuration(self) -> BatteryConfiguration:
+        """Resolve module count and nominal capacity for the Force H3 stack."""
+        module_entity = str(self._option(CONF_BATTERY_MODULE_COUNT_ENTITY)).strip()
+        module_count_from_entity = self._state_float(module_entity)
+        if module_count_from_entity is not None:
+            modules = int(round(module_count_from_entity))
+            if self._valid_module_count(modules):
+                return BatteryConfiguration(
+                    module_count=modules,
+                    capacity_kwh=self._capacity_for_modules(modules),
+                    source=f"entity:{module_entity}",
+                )
+
+        configured_modules = self._configured_value(CONF_BATTERY_MODULE_COUNT)
+        if configured_modules is not None:
+            modules = self._clamp_module_count(configured_modules)
+            warning = None
+            if (
+                module_count_from_entity is not None
+                and not self._valid_module_count(int(round(module_count_from_entity)))
+            ):
+                warning = (
+                    f"module count entity {module_entity} is unavailable or outside "
+                    f"{FORCE_H3_MIN_MODULES}-{FORCE_H3_MAX_MODULES}; using configured value"
+                )
+            return BatteryConfiguration(
+                module_count=modules,
+                capacity_kwh=self._capacity_for_modules(modules),
+                source="configured_module_count",
+                warning=warning,
+            )
+
+        legacy_capacity = self._configured_value(CONF_BATTERY_CAPACITY_KWH)
+        if legacy_capacity is not None:
+            inferred_modules = self._modules_from_capacity(legacy_capacity)
+            if inferred_modules is not None:
+                return BatteryConfiguration(
+                    module_count=inferred_modules,
+                    capacity_kwh=self._capacity_for_modules(inferred_modules),
+                    source="legacy_capacity",
+                )
+
+        modules = int(DEFAULTS[CONF_BATTERY_MODULE_COUNT])
+        return BatteryConfiguration(
+            module_count=modules,
+            capacity_kwh=self._capacity_for_modules(modules),
+            source="default_module_count",
+            warning=(
+                "using the default Force H3 module count; confirm the real number "
+                "of installed modules before enabling automatic control"
+            ),
+        )
+
+    def _configured_value(self, key: str) -> Any:
+        """Return a value only when the config entry explicitly stores it."""
+        if key in self.entry.options:
+            return self.entry.options[key]
+        if key in self.entry.data:
+            return self.entry.data[key]
+        return None
+
+    def _modules_from_capacity(self, capacity_kwh: Any) -> int | None:
+        """Infer Force H3 module count from a nominal capacity value."""
+        try:
+            capacity = float(capacity_kwh)
+        except (TypeError, ValueError):
+            return None
+
+        modules = int(round(capacity / FORCE_H3_MODULE_CAPACITY_KWH))
+        if not self._valid_module_count(modules):
+            return None
+        if abs(capacity - self._capacity_for_modules(modules)) > 0.05:
+            return None
+        return modules
+
+    @staticmethod
+    def _capacity_for_modules(module_count: int) -> float:
+        """Return nominal Force H3 capacity for a module count."""
+        return round(module_count * FORCE_H3_MODULE_CAPACITY_KWH, 2)
+
+    @staticmethod
+    def _valid_module_count(module_count: int) -> bool:
+        """Return whether a Force H3 module count is valid for one inverter."""
+        return FORCE_H3_MIN_MODULES <= module_count <= FORCE_H3_MAX_MODULES
+
+    def _clamp_module_count(self, value: Any) -> int:
+        """Clamp and round a module count to the supported Force H3 range."""
+        try:
+            modules = int(round(float(value)))
+        except (TypeError, ValueError):
+            modules = int(DEFAULTS[CONF_BATTERY_MODULE_COUNT])
+        return min(max(modules, FORCE_H3_MIN_MODULES), FORCE_H3_MAX_MODULES)
+
+    def _update_battery_capacity_issue(self, decision: Decision) -> None:
+        """Create or clear a Home Assistant repair issue for unconfirmed capacity."""
+        attributes = decision.attributes or {}
+        warning = attributes.get("battery_capacity_warning")
+        if not warning:
+            ir.async_delete_issue(self.hass, DOMAIN, BATTERY_CAPACITY_ISSUE_ID)
+            return
+
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            BATTERY_CAPACITY_ISSUE_ID,
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=BATTERY_CAPACITY_ISSUE_ID,
+            translation_placeholders={
+                "modules": str(attributes.get("battery_module_count") or "?"),
+                "capacity": str(attributes.get("capacity_kwh") or "?"),
+                "warning": str(warning),
+            },
+        )
 
     def _periodic_full_charge_state(self, soc: float) -> dict[str, Any]:
         """Return periodic full-charge state for top balancing and SOC calibration."""

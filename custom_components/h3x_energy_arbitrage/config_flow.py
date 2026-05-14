@@ -39,6 +39,8 @@ from .const import (
     CONF_MIN_CHARGE_TEMP_C,
     CONF_MIN_PROFIT_MARGIN,
     CONF_MIN_SOC,
+    CONF_BATTERY_MODULE_COUNT,
+    CONF_BATTERY_MODULE_COUNT_ENTITY,
     CONF_NORDPOOL_CONFIG_ENTRY,
     CONF_PERIODIC_FULL_CHARGE_ENABLED,
     CONF_PERIODIC_FULL_CHARGE_INTERVAL_DAYS,
@@ -61,6 +63,9 @@ from .const import (
     DEFAULTS,
     DISCHARGE_POWER_MODES,
     DOMAIN,
+    FORCE_H3_MAX_MODULES,
+    FORCE_H3_MIN_MODULES,
+    FORCE_H3_MODULE_CAPACITY_KWH,
     NORDPOOL_AREAS,
     NORDPOOL_CONF_AREAS,
     NORDPOOL_CONF_CURRENCY,
@@ -84,6 +89,7 @@ class H3XArbitrageConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            user_input = _apply_module_count_settings(user_input)
             user_input = _apply_profile_when_changed(user_input)
             errors = _validate_user_input(user_input)
             if not errors:
@@ -120,6 +126,7 @@ class H3XArbitrageOptionsFlow(config_entries.OptionsFlow):
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            user_input = _apply_module_count_settings(user_input)
             user_input = _apply_profile_when_changed(user_input, current)
             errors = _validate_user_input(user_input)
             if not errors:
@@ -140,6 +147,7 @@ def _schema(
     data = {**DEFAULTS, **_autodetected_defaults(hass)}
     if values:
         data.update(values)
+    data = _apply_module_count_settings(data)
 
     return vol.Schema(
         {
@@ -177,6 +185,10 @@ def _schema(
                 default=data[CONF_GRID_IMPORT_AVERAGE_POWER_ENTITY],
             ): str,
             vol.Optional(
+                CONF_BATTERY_MODULE_COUNT_ENTITY,
+                default=data[CONF_BATTERY_MODULE_COUNT_ENTITY],
+            ): str,
+            vol.Optional(
                 CONF_BMS_TEMP_ENTITY, default=data[CONF_BMS_TEMP_ENTITY]
             ): str,
             vol.Optional(
@@ -188,9 +200,22 @@ def _schema(
                 default=data[CONF_DISCHARGE_LIMIT_SOC_ENTITY],
             ): str,
             vol.Optional(
+                CONF_BATTERY_MODULE_COUNT,
+                default=data[CONF_BATTERY_MODULE_COUNT],
+            ): vol.All(
+                vol.Coerce(float),
+                vol.Range(min=FORCE_H3_MIN_MODULES, max=FORCE_H3_MAX_MODULES),
+            ),
+            vol.Optional(
                 CONF_BATTERY_CAPACITY_KWH,
                 default=data[CONF_BATTERY_CAPACITY_KWH],
-            ): vol.All(vol.Coerce(float), vol.Range(min=0.1, max=200.0)),
+            ): vol.All(
+                vol.Coerce(float),
+                vol.Range(
+                    min=FORCE_H3_MIN_MODULES * FORCE_H3_MODULE_CAPACITY_KWH,
+                    max=FORCE_H3_MAX_MODULES * FORCE_H3_MODULE_CAPACITY_KWH,
+                ),
+            ),
             vol.Optional(CONF_MIN_SOC, default=data[CONF_MIN_SOC]): vol.All(
                 vol.Coerce(float), vol.Range(min=0.0, max=95.0)
             ),
@@ -326,6 +351,20 @@ def _apply_profile_when_changed(
     return data
 
 
+def _apply_module_count_settings(data: dict[str, Any]) -> dict[str, Any]:
+    """Derive nominal Force H3 capacity from the configured module count."""
+    updated = dict(data)
+    if CONF_BATTERY_MODULE_COUNT in updated:
+        modules = int(round(float(updated[CONF_BATTERY_MODULE_COUNT])))
+        modules = min(max(modules, FORCE_H3_MIN_MODULES), FORCE_H3_MAX_MODULES)
+        updated[CONF_BATTERY_MODULE_COUNT] = float(modules)
+        updated[CONF_BATTERY_CAPACITY_KWH] = round(
+            modules * FORCE_H3_MODULE_CAPACITY_KWH,
+            2,
+        )
+    return updated
+
+
 def _validate_user_input(data: dict[str, Any]) -> dict[str, str]:
     """Validate cross-field constraints."""
     errors: dict[str, str] = {}
@@ -337,9 +376,14 @@ def _validate_user_input(data: dict[str, Any]) -> dict[str, str]:
     full_scale = float(data[CONF_INVERTER_FULL_SCALE_POWER_W])
     full_charge_target = float(data[CONF_PERIODIC_FULL_CHARGE_TARGET_SOC])
     full_charge_threshold = float(data[CONF_PERIODIC_FULL_CHARGE_THRESHOLD_SOC])
+    module_count = int(round(float(data[CONF_BATTERY_MODULE_COUNT])))
+    capacity_kwh = float(data[CONF_BATTERY_CAPACITY_KWH])
+    expected_capacity = round(module_count * FORCE_H3_MODULE_CAPACITY_KWH, 2)
 
     if max(min_soc, reserve_soc) >= max_soc:
         errors[CONF_MAX_SOC] = "soc_range"
+    if abs(capacity_kwh - expected_capacity) > 0.02:
+        errors[CONF_BATTERY_CAPACITY_KWH] = "capacity_module_mismatch"
     if full_charge_threshold > full_charge_target:
         errors[CONF_PERIODIC_FULL_CHARGE_THRESHOLD_SOC] = (
             "full_charge_threshold_above_target"
