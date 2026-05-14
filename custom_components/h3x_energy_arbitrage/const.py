@@ -52,14 +52,14 @@ DEFAULT_AREA = "auto"
 DEFAULT_CURRENCY = "auto"
 DEFAULT_RESOLUTION = 15
 
-DEFAULT_EMS_MODE_ENTITY = "select.force_h3x_bridge_ems_mode"
-DEFAULT_POWER_REF_ENTITY = "number.force_h3x_bridge_charge_discharge_power_ref"
-DEFAULT_SOC_ENTITY = "sensor.force_h3x_bridge_battery_soc"
-DEFAULT_LOAD_POWER_ENTITY = "sensor.force_h3x_bridge_load_power"
-DEFAULT_BMS_TEMP_ENTITY = "sensor.force_h3x_bridge_bms_temperature"
-DEFAULT_CHARGE_LIMIT_SOC_ENTITY = "number.force_h3x_bridge_charge_limit_soc"
+DEFAULT_EMS_MODE_ENTITY = "select.pylontech_h3x_bridge_ems_mode"
+DEFAULT_POWER_REF_ENTITY = "number.pylontech_h3x_bridge_charge_discharge_power_ref"
+DEFAULT_SOC_ENTITY = "sensor.pylontech_h3x_bridge_battery_soc"
+DEFAULT_LOAD_POWER_ENTITY = "sensor.pylontech_h3x_bridge_load_power"
+DEFAULT_BMS_TEMP_ENTITY = "sensor.pylontech_h3x_bridge_bms_temperature"
+DEFAULT_CHARGE_LIMIT_SOC_ENTITY = "number.pylontech_h3x_bridge_charge_limit_soc"
 DEFAULT_DISCHARGE_LIMIT_SOC_ENTITY = (
-    "number.force_h3x_bridge_discharge_limit_soc_eps"
+    "number.pylontech_h3x_bridge_discharge_limit_soc_eps"
 )
 
 DEFAULTS = {

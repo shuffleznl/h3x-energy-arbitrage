@@ -6,16 +6,16 @@ This repository contains one HACS integration:
 
 | Integration | Domain | Purpose |
 | --- | --- | --- |
-| Pylontech H3X Energy Arbitrage | `h3x_energy_arbitrage` | Ingest Nord Pool prices, compute battery arbitrage decisions, and optionally control Force H3X Bridge entities. |
+| Pylontech H3X Energy Arbitrage | `h3x_energy_arbitrage` | Ingest Nord Pool prices, compute battery arbitrage decisions, and optionally control Pylontech H3X Bridge entities. |
 
 ## Requirements
 
 - Home Assistant `2024.6.0` or newer.
 - HACS.
 - Nord Pool integration configured in Home Assistant.
-- Force H3X Bridge installed from `https://github.com/shuffleznl/force-h3x-bridge`.
+- Pylontech H3X Bridge installed from `https://github.com/shuffleznl/pylontech-fh3x-bridge`.
 
-The controller calls the Nord Pool `get_price_indices_for_date` service, reads the Force H3X Bridge sensors, and writes the Force H3X Bridge EMS mode and charge/discharge power entities when automatic control is enabled.
+The controller calls the Nord Pool `get_price_indices_for_date` service, reads the Pylontech H3X Bridge sensors, and writes the Pylontech H3X Bridge EMS mode and charge/discharge power entities when automatic control is enabled.
 
 ## HACS Installation
 
@@ -23,7 +23,7 @@ The controller calls the Nord Pool `get_price_indices_for_date` service, reads t
 2. Install **Pylontech H3X Energy Arbitrage**.
 3. Restart Home Assistant.
 4. Go to **Settings > Devices & services > Add integration**.
-5. Add **Pylontech H3X Energy Arbitrage** and review the detected Nord Pool area and Force H3X Bridge entity IDs.
+5. Add **Pylontech H3X Energy Arbitrage** and review the detected Nord Pool area and Pylontech H3X Bridge entity IDs.
 
 ## Safe First Run
 
@@ -35,13 +35,13 @@ After the decision sensors look correct, enable automatic control from the integ
 
 | Purpose | Default entity |
 | --- | --- |
-| EMS mode | `select.force_h3x_bridge_ems_mode` |
-| Charge/discharge power | `number.force_h3x_bridge_charge_discharge_power_ref` |
-| Battery SOC | `sensor.force_h3x_bridge_battery_soc` |
-| House load | `sensor.force_h3x_bridge_load_power` |
-| BMS temperature | `sensor.force_h3x_bridge_bms_temperature` |
-| Charge SOC limit | `number.force_h3x_bridge_charge_limit_soc` |
-| Discharge SOC limit | `number.force_h3x_bridge_discharge_limit_soc_eps` |
+| EMS mode | `select.pylontech_h3x_bridge_ems_mode` |
+| Charge/discharge power | `number.pylontech_h3x_bridge_charge_discharge_power_ref` |
+| Battery SOC | `sensor.pylontech_h3x_bridge_battery_soc` |
+| House load | `sensor.pylontech_h3x_bridge_load_power` |
+| BMS temperature | `sensor.pylontech_h3x_bridge_bms_temperature` |
+| Charge SOC limit | `number.pylontech_h3x_bridge_charge_limit_soc` |
+| Discharge SOC limit | `number.pylontech_h3x_bridge_discharge_limit_soc_eps` |
 
 ## Exposed Sensors
 
@@ -77,7 +77,7 @@ Default power settings are `11 kW` continuous and `13.8 kW` peak, with peak powe
 
 ## Charging Caveat
 
-This controller writes through Force H3X Bridge. If discharging works but grid charging does not, verify the H3X inverter configuration first: Work Mode `P5` charge/discharge time control or another grid-charge-capable mode, Power from Grid/import limit, charge SOC limit, BMS state, and meter configuration.
+This controller writes through Pylontech H3X Bridge. If discharging works but grid charging does not, verify the H3X inverter configuration first: Work Mode `P5` charge/discharge time control or another grid-charge-capable mode, Power from Grid/import limit, charge SOC limit, BMS state, and meter configuration.
 
 ## Validation
 
