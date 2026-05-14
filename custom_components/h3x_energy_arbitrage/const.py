@@ -25,6 +25,10 @@ CONF_MIN_SOC = "min_soc"
 CONF_MAX_SOC = "max_soc"
 CONF_RESERVE_SOC = "reserve_soc"
 CONF_TERMINAL_SOC_MODE = "terminal_soc_mode"
+CONF_PERIODIC_FULL_CHARGE_ENABLED = "periodic_full_charge_enabled"
+CONF_PERIODIC_FULL_CHARGE_INTERVAL_DAYS = "periodic_full_charge_interval_days"
+CONF_PERIODIC_FULL_CHARGE_TARGET_SOC = "periodic_full_charge_target_soc"
+CONF_PERIODIC_FULL_CHARGE_THRESHOLD_SOC = "periodic_full_charge_threshold_soc"
 CONF_ROUND_TRIP_EFFICIENCY = "round_trip_efficiency"
 CONF_CYCLE_COST = "cycle_cost_per_kwh"
 CONF_MIN_PROFIT_MARGIN = "min_profit_margin_per_kwh"
@@ -80,6 +84,10 @@ DEFAULTS = {
     CONF_MAX_SOC: 90.0,
     CONF_RESERVE_SOC: 20.0,
     CONF_TERMINAL_SOC_MODE: "preserve_current",
+    CONF_PERIODIC_FULL_CHARGE_ENABLED: True,
+    CONF_PERIODIC_FULL_CHARGE_INTERVAL_DAYS: 7.0,
+    CONF_PERIODIC_FULL_CHARGE_TARGET_SOC: 100.0,
+    CONF_PERIODIC_FULL_CHARGE_THRESHOLD_SOC: 99.0,
     CONF_ROUND_TRIP_EFFICIENCY: 0.90,
     CONF_CYCLE_COST: 0.035,
     CONF_MIN_PROFIT_MARGIN: 0.015,

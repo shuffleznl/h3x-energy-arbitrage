@@ -66,6 +66,7 @@ The optimizer supports:
 
 - 15, 30, and 60 minute price slots,
 - configurable battery capacity, minimum SOC, reserve SOC, maximum SOC, and terminal SOC behavior,
+- periodic full-charge/top-balance cycle scheduled into the cheapest available slots,
 - round-trip efficiency,
 - cycle cost and minimum margin,
 - buy-side and sell-side tariff adders,
@@ -74,6 +75,12 @@ The optimizer supports:
 - BMS temperature guards for LiFePO4 charging.
 
 Default power settings are `11 kW` continuous and `13.8 kW` peak, with peak power only used when the price spread clears the configured extra margin.
+
+## Periodic Full Charge
+
+LiFePO4 packs are normally happier cycling below 100% SOC, but the BMS may need an occasional full charge for top balancing and SOC calibration. The integration therefore defaults to one 100% target every 7 days, counted complete when the SOC sensor reaches 99%.
+
+When the full-charge interval is due, the optimizer temporarily raises the charge SOC limit to the configured target and adds that energy requirement to the price plan. It still uses Nord Pool pricing, so the extra charge is placed in the cheapest available slot inside the configured horizon instead of at a fixed clock time. After the threshold is reached, the timestamp is stored in Home Assistant storage and the normal maximum SOC limit is restored on the next control pass.
 
 ## Charging Caveat
 
@@ -87,4 +94,6 @@ Run local validation with `uv`:
 $env:UV_PYTHON_INSTALL_DIR='.uv-python'
 uv --cache-dir .uv-cache run --python 3.13 python -m compileall custom_components tools
 uv --cache-dir .uv-cache run --python 3.13 python tools/validate_hacs_structure.py
+uv --cache-dir .uv-cache run --python 3.13 python tools/validate_sensor_metadata.py
+uv --cache-dir .uv-cache run --python 3.13 python tools/validate_periodic_full_charge.py
 ```

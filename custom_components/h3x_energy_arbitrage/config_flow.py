@@ -35,6 +35,10 @@ from .const import (
     CONF_MIN_PROFIT_MARGIN,
     CONF_MIN_SOC,
     CONF_NORDPOOL_CONFIG_ENTRY,
+    CONF_PERIODIC_FULL_CHARGE_ENABLED,
+    CONF_PERIODIC_FULL_CHARGE_INTERVAL_DAYS,
+    CONF_PERIODIC_FULL_CHARGE_TARGET_SOC,
+    CONF_PERIODIC_FULL_CHARGE_THRESHOLD_SOC,
     CONF_PEAK_EXTRA_MARGIN,
     CONF_PEAK_POWER_W,
     CONF_POWER_REF_ENTITY,
@@ -180,6 +184,22 @@ def _schema(
                 CONF_TERMINAL_SOC_MODE, default=data[CONF_TERMINAL_SOC_MODE]
             ): vol.In(("preserve_current", "reserve_only")),
             vol.Optional(
+                CONF_PERIODIC_FULL_CHARGE_ENABLED,
+                default=data[CONF_PERIODIC_FULL_CHARGE_ENABLED],
+            ): bool,
+            vol.Optional(
+                CONF_PERIODIC_FULL_CHARGE_INTERVAL_DAYS,
+                default=data[CONF_PERIODIC_FULL_CHARGE_INTERVAL_DAYS],
+            ): vol.All(vol.Coerce(float), vol.Range(min=1.0, max=90.0)),
+            vol.Optional(
+                CONF_PERIODIC_FULL_CHARGE_TARGET_SOC,
+                default=data[CONF_PERIODIC_FULL_CHARGE_TARGET_SOC],
+            ): vol.All(vol.Coerce(float), vol.Range(min=95.0, max=100.0)),
+            vol.Optional(
+                CONF_PERIODIC_FULL_CHARGE_THRESHOLD_SOC,
+                default=data[CONF_PERIODIC_FULL_CHARGE_THRESHOLD_SOC],
+            ): vol.All(vol.Coerce(float), vol.Range(min=90.0, max=100.0)),
+            vol.Optional(
                 CONF_ROUND_TRIP_EFFICIENCY,
                 default=data[CONF_ROUND_TRIP_EFFICIENCY],
             ): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=1.0)),
@@ -265,9 +285,15 @@ def _validate_user_input(data: dict[str, Any]) -> dict[str, str]:
     continuous = float(data[CONF_CONTINUOUS_POWER_W])
     peak = float(data[CONF_PEAK_POWER_W])
     full_scale = float(data[CONF_INVERTER_FULL_SCALE_POWER_W])
+    full_charge_target = float(data[CONF_PERIODIC_FULL_CHARGE_TARGET_SOC])
+    full_charge_threshold = float(data[CONF_PERIODIC_FULL_CHARGE_THRESHOLD_SOC])
 
     if max(min_soc, reserve_soc) >= max_soc:
         errors[CONF_MAX_SOC] = "soc_range"
+    if full_charge_threshold > full_charge_target:
+        errors[CONF_PERIODIC_FULL_CHARGE_THRESHOLD_SOC] = (
+            "full_charge_threshold_above_target"
+        )
     if peak < continuous:
         errors[CONF_PEAK_POWER_W] = "peak_below_continuous"
     if full_scale < peak:

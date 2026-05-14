@@ -22,6 +22,10 @@
           "reserve_soc": "Reserve SOC %",
           "max_soc": "Maximum SOC %",
           "terminal_soc_mode": "End-of-horizon SOC behavior",
+          "periodic_full_charge_enabled": "Enable periodic 100% SOC charge",
+          "periodic_full_charge_interval_days": "Periodic full-charge interval days",
+          "periodic_full_charge_target_soc": "Periodic full-charge target SOC %",
+          "periodic_full_charge_threshold_soc": "SOC % counted as full",
           "round_trip_efficiency": "Round-trip efficiency",
           "cycle_cost_per_kwh": "Battery cycle cost per kWh",
           "min_profit_margin_per_kwh": "Minimum extra profit margin per kWh",
@@ -46,6 +50,7 @@
     },
     "error": {
       "soc_range": "Maximum SOC must be higher than minimum and reserve SOC.",
+      "full_charge_threshold_above_target": "The SOC counted as full must be less than or equal to the periodic full-charge target SOC.",
       "peak_below_continuous": "Peak power must be greater than or equal to continuous power.",
       "full_scale_below_peak": "Full-scale inverter power must be greater than or equal to peak power."
     }
@@ -73,6 +78,10 @@
           "reserve_soc": "Reserve SOC %",
           "max_soc": "Maximum SOC %",
           "terminal_soc_mode": "End-of-horizon SOC behavior",
+          "periodic_full_charge_enabled": "Enable periodic 100% SOC charge",
+          "periodic_full_charge_interval_days": "Periodic full-charge interval days",
+          "periodic_full_charge_target_soc": "Periodic full-charge target SOC %",
+          "periodic_full_charge_threshold_soc": "SOC % counted as full",
           "round_trip_efficiency": "Round-trip efficiency",
           "cycle_cost_per_kwh": "Battery cycle cost per kWh",
           "min_profit_margin_per_kwh": "Minimum extra profit margin per kWh",

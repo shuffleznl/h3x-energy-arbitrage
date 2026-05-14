@@ -53,6 +53,14 @@ def _decision_attributes(data: dict[str, Any]) -> dict[str, Any]:
             "temperature_guard",
             "control_enabled",
             "nordpool_resolution_minutes",
+            "normal_max_soc",
+            "periodic_full_charge_enabled",
+            "periodic_full_charge_due",
+            "periodic_full_charge_target_soc",
+            "periodic_full_charge_threshold_soc",
+            "periodic_full_charge_interval_days",
+            "periodic_full_charge_last_at",
+            "periodic_full_charge_next_due_at",
         )
     }
     attributes.update(

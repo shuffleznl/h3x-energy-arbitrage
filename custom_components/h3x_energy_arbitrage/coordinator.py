@@ -12,6 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
@@ -41,6 +42,10 @@ from .const import (
     CONF_MIN_PROFIT_MARGIN,
     CONF_MIN_SOC,
     CONF_NORDPOOL_CONFIG_ENTRY,
+    CONF_PERIODIC_FULL_CHARGE_ENABLED,
+    CONF_PERIODIC_FULL_CHARGE_INTERVAL_DAYS,
+    CONF_PERIODIC_FULL_CHARGE_TARGET_SOC,
+    CONF_PERIODIC_FULL_CHARGE_THRESHOLD_SOC,
     CONF_PEAK_EXTRA_MARGIN,
     CONF_PEAK_POWER_W,
     CONF_POWER_REF_ENTITY,
@@ -60,6 +65,8 @@ from .const import (
 )
 
 LOGGER = logging.getLogger(__name__)
+STORAGE_VERSION = 1
+LAST_FULL_CHARGE_KEY = "last_periodic_full_charge_at"
 
 
 @dataclass(slots=True)
@@ -131,6 +138,13 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self._last_power_percent: float | None = None
         self._last_ems_mode: str | None = None
+        self._store = Store(
+            hass,
+            STORAGE_VERSION,
+            f"{DOMAIN}_{entry.entry_id}_state",
+        )
+        self._state_loaded = False
+        self._last_full_charge_at: datetime | None = None
 
     def _option(self, key: str) -> Any:
         """Return an option value with a default fallback."""
@@ -141,6 +155,10 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         """Update price data, compute the decision, and apply controls."""
         try:
+            await self._async_load_state()
+            current_soc = self._state_float(str(self._option(CONF_SOC_ENTITY)))
+            if current_soc is not None:
+                await self._async_record_full_charge_if_reached(current_soc)
             slots = await self._fetch_price_slots()
             decision = self._compute_decision(slots)
         except Exception as err:  # pylint: disable=broad-except
@@ -153,6 +171,40 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             decision.reason = f"{decision.reason}; control disabled"
 
         return decision.as_dict()
+
+    async def async_shutdown(self) -> None:
+        """Shut down coordinator resources."""
+        return None
+
+    async def _async_load_state(self) -> None:
+        """Load persisted optimizer state."""
+        if self._state_loaded:
+            return
+        stored = await self._store.async_load()
+        timestamp = (stored or {}).get(LAST_FULL_CHARGE_KEY)
+        if timestamp:
+            parsed = dt_util.parse_datetime(str(timestamp))
+            if parsed is not None:
+                self._last_full_charge_at = dt_util.as_utc(parsed)
+        self._state_loaded = True
+
+    async def _async_record_full_charge_if_reached(self, soc: float) -> None:
+        """Persist the timestamp when the pack reaches the full-charge threshold."""
+        if not bool(self._option(CONF_PERIODIC_FULL_CHARGE_ENABLED)):
+            return
+        threshold = float(self._option(CONF_PERIODIC_FULL_CHARGE_THRESHOLD_SOC))
+        if soc < threshold:
+            return
+
+        now = dt_util.utcnow()
+        if (
+            self._last_full_charge_at is not None
+            and now - self._last_full_charge_at < timedelta(hours=12)
+        ):
+            return
+
+        self._last_full_charge_at = now
+        await self._store.async_save({LAST_FULL_CHARGE_KEY: now.isoformat()})
 
     async def _fetch_price_slots(self) -> list[PriceSlot]:
         """Fetch today and tomorrow price slots from Home Assistant Nord Pool."""
@@ -264,15 +316,34 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         capacity_kwh = max(float(self._option(CONF_BATTERY_CAPACITY_KWH)), 0.1)
         min_soc = max(float(self._option(CONF_MIN_SOC)), 0.0)
         reserve_soc = max(float(self._option(CONF_RESERVE_SOC)), min_soc)
-        max_soc = min(max(float(self._option(CONF_MAX_SOC)), reserve_soc + 1.0), 100.0)
-        floor_soc = min(reserve_soc, max_soc - 1.0)
-        min_energy = capacity_kwh * floor_soc / 100
-        max_energy = capacity_kwh * max_soc / 100
-        current_energy = min(max(capacity_kwh * soc / 100, min_energy), max_energy)
+        normal_max_soc = min(
+            max(float(self._option(CONF_MAX_SOC)), reserve_soc + 1.0), 100.0
+        )
+        periodic_full_charge = self._periodic_full_charge_state(soc)
 
         bms_temp = self._state_float(str(self._option(CONF_BMS_TEMP_ENTITY)))
         charge_allowed, discharge_allowed, temp_reason = self._temperature_permissions(
             bms_temp
+        )
+
+        force_full_charge = (
+            periodic_full_charge["periodic_full_charge_due"] and charge_allowed
+        )
+        max_soc = normal_max_soc
+        if force_full_charge:
+            max_soc = max(
+                max_soc,
+                periodic_full_charge["periodic_full_charge_target_soc"],
+            )
+
+        floor_soc = min(reserve_soc, max_soc - 1.0)
+        min_energy = capacity_kwh * floor_soc / 100
+        max_energy = capacity_kwh * max_soc / 100
+        current_energy = min(max(capacity_kwh * soc / 100, min_energy), max_energy)
+        terminal_energy = (
+            max_energy
+            if force_full_charge
+            else self._terminal_energy(current_energy, min_energy, max_energy)
         )
 
         interval_minutes = self._infer_resolution_minutes(future_slots)
@@ -281,9 +352,10 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             current_energy=current_energy,
             min_energy=min_energy,
             max_energy=max_energy,
-            terminal_energy=self._terminal_energy(current_energy, min_energy, max_energy),
+            terminal_energy=terminal_energy,
             charge_allowed=charge_allowed,
             discharge_allowed=discharge_allowed,
+            periodic_full_charge_due=force_full_charge,
         )
 
         current_slot = future_slots[0]
@@ -301,10 +373,12 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "area": self._resolve_area(),
                 "currency": self._resolve_currency(),
                 "min_soc": floor_soc,
+                "normal_max_soc": normal_max_soc,
                 "max_soc": max_soc,
                 "capacity_kwh": capacity_kwh,
                 "temperature_guard": temp_reason,
                 "control_enabled": bool(self._option(CONF_CONTROL_ENABLED)),
+                **periodic_full_charge,
                 "nordpool_resolution_minutes": int(self._option(CONF_RESOLUTION)),
                 "price_slots": [
                     self._serialize_price_slot(slot) for slot in future_slots
@@ -339,6 +413,40 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         return decision
 
+    def _periodic_full_charge_state(self, soc: float) -> dict[str, Any]:
+        """Return periodic full-charge state for top balancing and SOC calibration."""
+        enabled = bool(self._option(CONF_PERIODIC_FULL_CHARGE_ENABLED))
+        interval_days = float(self._option(CONF_PERIODIC_FULL_CHARGE_INTERVAL_DAYS))
+        target_soc = float(self._option(CONF_PERIODIC_FULL_CHARGE_TARGET_SOC))
+        threshold_soc = float(self._option(CONF_PERIODIC_FULL_CHARGE_THRESHOLD_SOC))
+        now = dt_util.utcnow()
+        next_due_at = None
+        due = False
+
+        if enabled and self._last_full_charge_at is not None:
+            next_due = self._last_full_charge_at + timedelta(days=interval_days)
+            next_due_at = next_due.isoformat()
+            due = now >= next_due
+        elif enabled:
+            due = soc < threshold_soc
+
+        if soc >= threshold_soc:
+            due = False
+
+        return {
+            "periodic_full_charge_enabled": enabled,
+            "periodic_full_charge_due": due,
+            "periodic_full_charge_target_soc": target_soc,
+            "periodic_full_charge_threshold_soc": threshold_soc,
+            "periodic_full_charge_interval_days": interval_days,
+            "periodic_full_charge_last_at": (
+                self._last_full_charge_at.isoformat()
+                if self._last_full_charge_at is not None
+                else None
+            ),
+            "periodic_full_charge_next_due_at": next_due_at,
+        }
+
     def _run_optimizer(
         self,
         future_slots: list[PriceSlot],
@@ -348,6 +456,7 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         terminal_energy: float,
         charge_allowed: bool,
         discharge_allowed: bool,
+        periodic_full_charge_due: bool = False,
     ) -> Decision:
         """Run a dynamic-programming arbitrage optimizer."""
         now = dt_util.utcnow()
@@ -445,9 +554,12 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         delta = levels[next_idx] - levels[initial_idx]
         duration_h = self._slot_duration_hours(future_slots[0], now)
         if abs(delta) < step_kwh / 2 or duration_h <= 0:
+            reason = "optimizer selected no economic movement"
+            if periodic_full_charge_due:
+                reason = "periodic full charge due; waiting for selected charge slot"
             return Decision(
                 action="idle",
-                reason="optimizer selected no economic movement",
+                reason=reason,
                 estimated_first_slot_value=first_rewards.get((0, initial_idx), 0.0),
                 estimated_plan_value=plan_value,
                 estimated_today_value=today_value,
@@ -458,9 +570,12 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if delta > 0:
             target_power = delta / charge_eff / duration_h * 1000
+            reason = "current slot is economical for grid charging"
+            if periodic_full_charge_due:
+                reason = "periodic full charge due; charging toward top-balance target"
             return Decision(
                 action="charge",
-                reason="current slot is economical for grid charging",
+                reason=reason,
                 target_power_w=min(target_power, self._slot_power_limit(future_slots[0], future_slots)),
                 estimated_first_slot_value=first_rewards.get((0, initial_idx), 0.0),
                 estimated_plan_value=plan_value,
@@ -471,9 +586,12 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
 
         target_power = abs(delta) * discharge_eff / duration_h * 1000
+        reason = "current slot is economical for grid export"
+        if periodic_full_charge_due:
+            reason = "periodic full charge due; export remains economical before recharge"
         return Decision(
             action="discharge",
-            reason="current slot is economical for grid export",
+            reason=reason,
             target_power_w=min(target_power, self._slot_power_limit(future_slots[0], future_slots)),
             estimated_first_slot_value=first_rewards.get((0, initial_idx), 0.0),
             estimated_plan_value=plan_value,
@@ -655,7 +773,7 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _apply_decision(self, decision: Decision) -> None:
         """Apply the control decision through Home Assistant entity services."""
         try:
-            await self._set_soc_limits()
+            await self._set_soc_limits(decision)
             if decision.action in {"charge", "discharge"}:
                 await self._set_ems_mode(str(self._option(CONF_USER_EMS_MODE)))
                 await self._set_power_ref(decision.target_power_percent)
@@ -668,12 +786,18 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             decision.applied = False
             decision.apply_error = str(err)
 
-    async def _set_soc_limits(self) -> None:
+    async def _set_soc_limits(self, decision: Decision) -> None:
         """Set conservative SOC limits on the H3X integration when entities exist."""
         charge_entity = str(self._option(CONF_CHARGE_LIMIT_SOC_ENTITY)).strip()
         discharge_entity = str(self._option(CONF_DISCHARGE_LIMIT_SOC_ENTITY)).strip()
         max_soc = float(self._option(CONF_MAX_SOC))
         floor_soc = max(float(self._option(CONF_MIN_SOC)), float(self._option(CONF_RESERVE_SOC)))
+        attributes = decision.attributes or {}
+        if attributes.get("periodic_full_charge_due"):
+            max_soc = max(
+                max_soc,
+                float(attributes.get("periodic_full_charge_target_soc") or max_soc),
+            )
 
         if charge_entity and self.hass.states.get(charge_entity) is not None:
             await self.hass.services.async_call(

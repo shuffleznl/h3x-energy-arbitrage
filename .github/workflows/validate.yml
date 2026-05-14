@@ -19,6 +19,8 @@ jobs:
         run: python tools/validate_hacs_structure.py
       - name: Validate sensor metadata
         run: python tools/validate_sensor_metadata.py
+      - name: Validate periodic full-charge wiring
+        run: python tools/validate_periodic_full_charge.py
       - name: Validate JSON
         run: |
           python -m json.tool hacs.json > /dev/null
