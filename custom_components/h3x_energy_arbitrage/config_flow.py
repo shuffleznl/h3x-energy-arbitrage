@@ -20,10 +20,15 @@ from .const import (
     CONF_CURRENCY,
     CONF_CYCLE_COST,
     CONF_DISCHARGE_LIMIT_SOC_ENTITY,
+    CONF_DISCHARGE_POWER_MODE,
+    CONF_DISCHARGE_SPREAD_MAX_HOURS,
+    CONF_DISCHARGE_SPREAD_PRICE_TOLERANCE,
     CONF_EMS_MODE_ENTITY,
     CONF_ENABLE_PEAK_POWER,
     CONF_GRID_EXPORT_LIMIT_W,
+    CONF_GRID_IMPORT_AVERAGE_POWER_ENTITY,
     CONF_GRID_IMPORT_LIMIT_W,
+    CONF_GRID_IMPORT_POWER_ENTITY,
     CONF_HORIZON_HOURS,
     CONF_IDLE_EMS_MODE,
     CONF_INVERTER_FULL_SCALE_POWER_W,
@@ -54,6 +59,7 @@ from .const import (
     CURRENCIES,
     DEFAULT_STRATEGY_PROFILE,
     DEFAULTS,
+    DISCHARGE_POWER_MODES,
     DOMAIN,
     NORDPOOL_AREAS,
     NORDPOOL_CONF_AREAS,
@@ -163,6 +169,14 @@ def _schema(
                 CONF_LOAD_POWER_ENTITY, default=data[CONF_LOAD_POWER_ENTITY]
             ): str,
             vol.Optional(
+                CONF_GRID_IMPORT_POWER_ENTITY,
+                default=data[CONF_GRID_IMPORT_POWER_ENTITY],
+            ): str,
+            vol.Optional(
+                CONF_GRID_IMPORT_AVERAGE_POWER_ENTITY,
+                default=data[CONF_GRID_IMPORT_AVERAGE_POWER_ENTITY],
+            ): str,
+            vol.Optional(
                 CONF_BMS_TEMP_ENTITY, default=data[CONF_BMS_TEMP_ENTITY]
             ): str,
             vol.Optional(
@@ -246,6 +260,18 @@ def _schema(
             vol.Optional(
                 CONF_GRID_EXPORT_LIMIT_W, default=data[CONF_GRID_EXPORT_LIMIT_W]
             ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=100000.0)),
+            vol.Optional(
+                CONF_DISCHARGE_POWER_MODE,
+                default=data[CONF_DISCHARGE_POWER_MODE],
+            ): vol.In(DISCHARGE_POWER_MODES),
+            vol.Optional(
+                CONF_DISCHARGE_SPREAD_PRICE_TOLERANCE,
+                default=data[CONF_DISCHARGE_SPREAD_PRICE_TOLERANCE],
+            ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=50.0)),
+            vol.Optional(
+                CONF_DISCHARGE_SPREAD_MAX_HOURS,
+                default=data[CONF_DISCHARGE_SPREAD_MAX_HOURS],
+            ): vol.All(vol.Coerce(float), vol.Range(min=0.25, max=12.0)),
             vol.Optional(
                 CONF_HORIZON_HOURS, default=data[CONF_HORIZON_HOURS]
             ): vol.All(vol.Coerce(float), vol.Range(min=2.0, max=72.0)),

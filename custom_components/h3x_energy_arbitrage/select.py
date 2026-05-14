@@ -13,8 +13,10 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
+    CONF_DISCHARGE_POWER_MODE,
     CONF_STRATEGY_PROFILE,
     CONF_TERMINAL_SOC_MODE,
+    DISCHARGE_POWER_MODES,
     DOMAIN,
     STRATEGY_PROFILES,
     TERMINAL_SOC_MODES,
@@ -46,6 +48,14 @@ SELECTS: tuple[H3XArbitrageSelectDescription, ...] = (
         icon="mdi:battery-clock",
         option_key=CONF_TERMINAL_SOC_MODE,
         options=TERMINAL_SOC_MODES,
+    ),
+    H3XArbitrageSelectDescription(
+        key="discharge_power_mode",
+        translation_key="discharge_power_mode",
+        name="Discharge power mode",
+        icon="mdi:transmission-tower-export",
+        option_key=CONF_DISCHARGE_POWER_MODE,
+        options=DISCHARGE_POWER_MODES,
     ),
 )
 
@@ -109,11 +119,16 @@ class H3XArbitrageSelect(CoordinatorEntity[H3XArbitrageCoordinator], SelectEntit
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return profile details for the strategy selector."""
-        if self.entity_description.option_key != CONF_STRATEGY_PROFILE:
-            return {}
-        return {
-            "conservative": "preserve SOC, weekly full charge, higher profit margin, no peak power",
-            "typical": "balanced default profile",
-            "aggressive": "reserve-only horizon, no periodic full-charge constraint, 100% max SOC, lowest extra margin",
-            "custom": "manual settings differ from a built-in profile",
-        }
+        if self.entity_description.option_key == CONF_STRATEGY_PROFILE:
+            return {
+                "conservative": "preserve SOC, weekly full charge, higher profit margin, spread discharge, no peak power",
+                "typical": "balanced default profile with spread discharge",
+                "aggressive": "reserve-only horizon, no periodic full-charge constraint, 100% max SOC, max-economic discharge, lowest extra margin",
+                "custom": "manual settings differ from a built-in profile",
+            }
+        if self.entity_description.option_key == CONF_DISCHARGE_POWER_MODE:
+            return {
+                "spread": "spread export across nearby expensive slots when prices are close enough",
+                "max_economic": "use the optimizer's highest economic target power",
+            }
+        return {}

@@ -13,6 +13,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
+    CONF_DISCHARGE_SPREAD_MAX_HOURS,
+    CONF_DISCHARGE_SPREAD_PRICE_TOLERANCE,
     CONF_PERIODIC_FULL_CHARGE_INTERVAL_DAYS,
     CONF_PERIODIC_FULL_CHARGE_TARGET_SOC,
     CONF_PERIODIC_FULL_CHARGE_THRESHOLD_SOC,
@@ -61,6 +63,28 @@ NUMBERS: tuple[H3XArbitrageNumberDescription, ...] = (
         native_step=1.0,
         native_unit_of_measurement=PERCENTAGE,
         option_key=CONF_PERIODIC_FULL_CHARGE_THRESHOLD_SOC,
+    ),
+    H3XArbitrageNumberDescription(
+        key="discharge_spread_price_tolerance",
+        translation_key="discharge_spread_price_tolerance",
+        name="Discharge spread price tolerance",
+        icon="mdi:chart-bell-curve",
+        native_min_value=0.0,
+        native_max_value=50.0,
+        native_step=1.0,
+        native_unit_of_measurement=PERCENTAGE,
+        option_key=CONF_DISCHARGE_SPREAD_PRICE_TOLERANCE,
+    ),
+    H3XArbitrageNumberDescription(
+        key="discharge_spread_max_hours",
+        translation_key="discharge_spread_max_hours",
+        name="Discharge spread maximum window",
+        icon="mdi:timeline-clock",
+        native_min_value=0.25,
+        native_max_value=12.0,
+        native_step=0.25,
+        native_unit_of_measurement=UnitOfTime.HOURS,
+        option_key=CONF_DISCHARGE_SPREAD_MAX_HOURS,
     ),
 )
 

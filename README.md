@@ -39,6 +39,8 @@ After the decision sensors look correct, enable automatic control from the integ
 | Charge/discharge power | `number.pylontech_h3x_bridge_charge_discharge_power_ref` |
 | Battery SOC | `sensor.pylontech_h3x_bridge_battery_soc` |
 | House load | `sensor.pylontech_h3x_bridge_load_power` |
+| Real-time grid import | `sensor.dsmr_reading_electricity_currently_delivered` |
+| Averaged grid import | `sensor.connect_energy_meter_electricity_average` |
 | BMS temperature | `sensor.pylontech_h3x_bridge_bms_temperature` |
 | Charge SOC limit | `number.pylontech_h3x_bridge_charge_limit_soc` |
 | Discharge SOC limit | `number.pylontech_h3x_bridge_discharge_limit_soc_eps` |
@@ -67,14 +69,16 @@ The integration exposes Home Assistant control entities so the strategy can be a
 
 - `select.h3x_energy_arbitrage_strategy_profile`: `conservative`, `typical`, `aggressive`, or `custom`.
 - `select.h3x_energy_arbitrage_end_of_horizon_soc`: preserve the current SOC by the end of the horizon, or allow discharge down to reserve.
+- `select.h3x_energy_arbitrage_discharge_power_mode`: spread discharge over adjacent high-price slots, or keep the maximum economic target power.
 - `switch.h3x_energy_arbitrage_periodic_full_charge`: enable or disable the periodic full-charge constraint.
 - `number.h3x_energy_arbitrage_periodic_full_charge_interval`, `target_soc`, and `threshold_soc`: tune the periodic full-charge cadence and completion threshold.
+- `number.h3x_energy_arbitrage_discharge_spread_price_tolerance` and `discharge_spread_max_hours`: tune how far and how long discharge can be spread.
 
 Strategy profiles apply these tradeoffs:
 
-- `conservative`: preserve current SOC, keep periodic full charge enabled, use a higher profit margin, lower normal maximum SOC, and disable peak power.
-- `typical`: balanced default behavior.
-- `aggressive`: prioritize estimated savings by allowing reserve-only end-of-horizon behavior, disabling periodic full-charge forcing, allowing 100% maximum SOC, and removing extra profit margin. This is economically aggressive and less battery-conservative.
+- `conservative`: preserve current SOC, keep periodic full charge enabled, spread discharge over a wider price band, use a higher profit margin, lower normal maximum SOC, and disable peak power.
+- `typical`: balanced default behavior with discharge spread across nearby high-price slots when prices are within 10% of the current expensive slot.
+- `aggressive`: prioritize estimated savings by allowing reserve-only end-of-horizon behavior, disabling periodic full-charge forcing, allowing 100% maximum SOC, using maximum economic discharge power, and removing extra profit margin. This is economically aggressive and less battery-conservative.
 
 ## Economics And Limits
 
@@ -88,9 +92,15 @@ The optimizer supports:
 - buy-side and sell-side tariff adders,
 - continuous and peak power limits,
 - house load aware grid import/export caps,
+- real-time and 5-minute average grid import guards for charging,
+- profile-controlled discharge spreading across economically similar expensive slots,
 - BMS temperature guards for LiFePO4 charging.
 
-Default power settings are `11 kW` continuous and `13.8 kW` peak, with peak power only used when the price spread clears the configured extra margin.
+Default power settings are `11 kW` continuous and `13.8 kW` peak, with peak power only used when the price spread clears the configured extra margin. The default grid import limit is `17.5 kW`; set it to `0` in options to disable the import guard.
+
+Charging is not intentionally slowed by the discharge spread controls. The optimizer still charges at the cheapest economic speed, capped by inverter power, BMS temperature, SOC limits, and the grid import limit. When DSMR or averaged import sensors are configured, charging headroom is based on the most conservative available reading and accounts for any already-requested battery charge power to avoid self-throttling during an active charge.
+
+Discharge spreading is a post-optimizer shaping step. In `spread` mode, the selected export energy is averaged across consecutive expensive slots that remain within the configured price tolerance and maximum window. In `max_economic` mode, the raw optimizer setpoint is used.
 
 ## Periodic Full Charge
 

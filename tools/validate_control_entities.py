@@ -51,12 +51,25 @@ def main() -> None:
         "async_options_updated",
         "terminal_soc_mode",
         "strategy_profile",
+        "discharge_power_mode",
+        "discharge_spread_price_tolerance",
+        "discharge_spread_max_hours",
+        "grid_import_power_entity",
+        "grid_import_average_power_entity",
+        "_power_state_w",
+        "_shape_discharge_decision",
     ):
         if token not in coordinator_source and token not in const_source:
             raise AssertionError(f"{token} missing from control wiring")
 
     if 'key="reason"' not in sensor_source:
         raise AssertionError("decision reason sensor is missing")
+    if 'key="discharge_power_mode"' not in read(INTEGRATION / "select.py"):
+        raise AssertionError("discharge power mode select is missing")
+    number_source = read(INTEGRATION / "number.py")
+    for token in ("discharge_spread_price_tolerance", "discharge_spread_max_hours"):
+        if token not in number_source:
+            raise AssertionError(f"{token} number control is missing")
 
 
 if __name__ == "__main__":

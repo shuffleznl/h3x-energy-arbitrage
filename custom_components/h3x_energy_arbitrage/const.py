@@ -17,6 +17,8 @@ CONF_EMS_MODE_ENTITY = "ems_mode_entity"
 CONF_POWER_REF_ENTITY = "power_ref_entity"
 CONF_SOC_ENTITY = "soc_entity"
 CONF_LOAD_POWER_ENTITY = "load_power_entity"
+CONF_GRID_IMPORT_POWER_ENTITY = "grid_import_power_entity"
+CONF_GRID_IMPORT_AVERAGE_POWER_ENTITY = "grid_import_average_power_entity"
 CONF_BMS_TEMP_ENTITY = "bms_temperature_entity"
 CONF_CHARGE_LIMIT_SOC_ENTITY = "charge_limit_soc_entity"
 CONF_DISCHARGE_LIMIT_SOC_ENTITY = "discharge_limit_soc_entity"
@@ -44,6 +46,9 @@ CONF_INVERTER_FULL_SCALE_POWER_W = "inverter_full_scale_power_w"
 CONF_MIN_ACTIVE_POWER_W = "min_active_power_w"
 CONF_GRID_IMPORT_LIMIT_W = "grid_import_limit_w"
 CONF_GRID_EXPORT_LIMIT_W = "grid_export_limit_w"
+CONF_DISCHARGE_POWER_MODE = "discharge_power_mode"
+CONF_DISCHARGE_SPREAD_PRICE_TOLERANCE = "discharge_spread_price_tolerance"
+CONF_DISCHARGE_SPREAD_MAX_HOURS = "discharge_spread_max_hours"
 
 CONF_HORIZON_HOURS = "horizon_hours"
 CONF_UPDATE_INTERVAL_MINUTES = "update_interval_minutes"
@@ -62,6 +67,10 @@ DEFAULT_EMS_MODE_ENTITY = "select.pylontech_h3x_bridge_ems_mode"
 DEFAULT_POWER_REF_ENTITY = "number.pylontech_h3x_bridge_charge_discharge_power_ref"
 DEFAULT_SOC_ENTITY = "sensor.pylontech_h3x_bridge_battery_soc"
 DEFAULT_LOAD_POWER_ENTITY = "sensor.pylontech_h3x_bridge_load_power"
+DEFAULT_GRID_IMPORT_POWER_ENTITY = "sensor.dsmr_reading_electricity_currently_delivered"
+DEFAULT_GRID_IMPORT_AVERAGE_POWER_ENTITY = (
+    "sensor.connect_energy_meter_electricity_average"
+)
 DEFAULT_BMS_TEMP_ENTITY = "sensor.pylontech_h3x_bridge_bms_temperature"
 DEFAULT_CHARGE_LIMIT_SOC_ENTITY = "number.pylontech_h3x_bridge_charge_limit_soc"
 DEFAULT_DISCHARGE_LIMIT_SOC_ENTITY = (
@@ -79,6 +88,8 @@ DEFAULTS = {
     CONF_POWER_REF_ENTITY: DEFAULT_POWER_REF_ENTITY,
     CONF_SOC_ENTITY: DEFAULT_SOC_ENTITY,
     CONF_LOAD_POWER_ENTITY: DEFAULT_LOAD_POWER_ENTITY,
+    CONF_GRID_IMPORT_POWER_ENTITY: DEFAULT_GRID_IMPORT_POWER_ENTITY,
+    CONF_GRID_IMPORT_AVERAGE_POWER_ENTITY: DEFAULT_GRID_IMPORT_AVERAGE_POWER_ENTITY,
     CONF_BMS_TEMP_ENTITY: DEFAULT_BMS_TEMP_ENTITY,
     CONF_CHARGE_LIMIT_SOC_ENTITY: DEFAULT_CHARGE_LIMIT_SOC_ENTITY,
     CONF_DISCHARGE_LIMIT_SOC_ENTITY: DEFAULT_DISCHARGE_LIMIT_SOC_ENTITY,
@@ -102,8 +113,11 @@ DEFAULTS = {
     CONF_PEAK_EXTRA_MARGIN: 0.05,
     CONF_INVERTER_FULL_SCALE_POWER_W: 13800.0,
     CONF_MIN_ACTIVE_POWER_W: 500.0,
-    CONF_GRID_IMPORT_LIMIT_W: 0.0,
+    CONF_GRID_IMPORT_LIMIT_W: 17500.0,
     CONF_GRID_EXPORT_LIMIT_W: 0.0,
+    CONF_DISCHARGE_POWER_MODE: "spread",
+    CONF_DISCHARGE_SPREAD_PRICE_TOLERANCE: 10.0,
+    CONF_DISCHARGE_SPREAD_MAX_HOURS: 3.0,
     CONF_HORIZON_HOURS: 36.0,
     CONF_UPDATE_INTERVAL_MINUTES: 5.0,
     CONF_IDLE_EMS_MODE: "Self-Consumption",
@@ -141,11 +155,15 @@ NORDPOOL_AREAS = (
 CURRENCIES = ("auto", "DKK", "EUR", "NOK", "PLN", "SEK")
 RESOLUTIONS = (15, 30, 60)
 TERMINAL_SOC_MODES = ("preserve_current", "reserve_only")
+DISCHARGE_POWER_MODES = ("spread", "max_economic")
 STRATEGY_PROFILES = ("conservative", "typical", "aggressive", "custom")
 STRATEGY_PROFILE_SETTINGS = {
     "conservative": {
         CONF_TERMINAL_SOC_MODE: "preserve_current",
         CONF_PERIODIC_FULL_CHARGE_ENABLED: True,
+        CONF_DISCHARGE_POWER_MODE: "spread",
+        CONF_DISCHARGE_SPREAD_PRICE_TOLERANCE: 20.0,
+        CONF_DISCHARGE_SPREAD_MAX_HOURS: 4.0,
         CONF_MIN_SOC: 20.0,
         CONF_MAX_SOC: 85.0,
         CONF_RESERVE_SOC: 25.0,
@@ -155,6 +173,9 @@ STRATEGY_PROFILE_SETTINGS = {
     "typical": {
         CONF_TERMINAL_SOC_MODE: "preserve_current",
         CONF_PERIODIC_FULL_CHARGE_ENABLED: True,
+        CONF_DISCHARGE_POWER_MODE: "spread",
+        CONF_DISCHARGE_SPREAD_PRICE_TOLERANCE: 10.0,
+        CONF_DISCHARGE_SPREAD_MAX_HOURS: 3.0,
         CONF_MIN_SOC: 15.0,
         CONF_MAX_SOC: 90.0,
         CONF_RESERVE_SOC: 20.0,
@@ -164,6 +185,7 @@ STRATEGY_PROFILE_SETTINGS = {
     "aggressive": {
         CONF_TERMINAL_SOC_MODE: "reserve_only",
         CONF_PERIODIC_FULL_CHARGE_ENABLED: False,
+        CONF_DISCHARGE_POWER_MODE: "max_economic",
         CONF_MIN_SOC: 15.0,
         CONF_MAX_SOC: 100.0,
         CONF_RESERVE_SOC: 15.0,

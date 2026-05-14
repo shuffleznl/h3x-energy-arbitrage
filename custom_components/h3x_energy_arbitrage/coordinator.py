@@ -27,10 +27,15 @@ from .const import (
     CONF_CURRENCY,
     CONF_CYCLE_COST,
     CONF_DISCHARGE_LIMIT_SOC_ENTITY,
+    CONF_DISCHARGE_POWER_MODE,
+    CONF_DISCHARGE_SPREAD_MAX_HOURS,
+    CONF_DISCHARGE_SPREAD_PRICE_TOLERANCE,
     CONF_EMS_MODE_ENTITY,
     CONF_ENABLE_PEAK_POWER,
     CONF_GRID_EXPORT_LIMIT_W,
+    CONF_GRID_IMPORT_AVERAGE_POWER_ENTITY,
     CONF_GRID_IMPORT_LIMIT_W,
+    CONF_GRID_IMPORT_POWER_ENTITY,
     CONF_HORIZON_HOURS,
     CONF_IDLE_EMS_MODE,
     CONF_INVERTER_FULL_SCALE_POWER_W,
@@ -96,6 +101,9 @@ class Decision:
     target_power_percent: float = 0.0
     soc: float | None = None
     load_power_w: float | None = None
+    grid_import_power_w: float | None = None
+    grid_import_average_power_w: float | None = None
+    grid_charge_headroom_w: float | None = None
     bms_temperature_c: float | None = None
     resolution_minutes: int | None = None
     slots_available: int = 0
@@ -121,6 +129,16 @@ class Decision:
         data["estimated_today_value"] = round(self.estimated_today_value, 4)
         data["planned_charge_kwh"] = round(self.planned_charge_kwh, 3)
         data["planned_discharge_kwh"] = round(self.planned_discharge_kwh, 3)
+        if self.load_power_w is not None:
+            data["load_power_w"] = round(self.load_power_w, 1)
+        if self.grid_import_power_w is not None:
+            data["grid_import_power_w"] = round(self.grid_import_power_w, 1)
+        if self.grid_import_average_power_w is not None:
+            data["grid_import_average_power_w"] = round(
+                self.grid_import_average_power_w, 1
+            )
+        if self.grid_charge_headroom_w is not None:
+            data["grid_charge_headroom_w"] = round(self.grid_charge_headroom_w, 1)
         return data
 
 
@@ -193,6 +211,16 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         if threshold_soc > target_soc:
             options[CONF_PERIODIC_FULL_CHARGE_THRESHOLD_SOC] = target_soc
+        if CONF_DISCHARGE_SPREAD_PRICE_TOLERANCE in options:
+            options[CONF_DISCHARGE_SPREAD_PRICE_TOLERANCE] = min(
+                max(float(options[CONF_DISCHARGE_SPREAD_PRICE_TOLERANCE]), 0.0),
+                50.0,
+            )
+        if CONF_DISCHARGE_SPREAD_MAX_HOURS in options:
+            options[CONF_DISCHARGE_SPREAD_MAX_HOURS] = min(
+                max(float(options[CONF_DISCHARGE_SPREAD_MAX_HOURS]), 0.25),
+                12.0,
+            )
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Update price data, compute the decision, and apply controls."""
@@ -408,7 +436,15 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         decision.slots_available = len(future_slots)
         decision.next_slot_start = current_slot.start.isoformat()
         decision.next_slot_end = current_slot.end.isoformat()
-        decision.load_power_w = self._state_float(str(self._option(CONF_LOAD_POWER_ENTITY)))
+        decision.load_power_w = self._power_state_w(
+            str(self._option(CONF_LOAD_POWER_ENTITY))
+        )
+        decision.grid_import_power_w = self._power_state_w(
+            str(self._option(CONF_GRID_IMPORT_POWER_ENTITY))
+        )
+        decision.grid_import_average_power_w = self._power_state_w(
+            str(self._option(CONF_GRID_IMPORT_AVERAGE_POWER_ENTITY))
+        )
         decision.updated_at = now.isoformat()
         decision.attributes.update(
             {
@@ -422,7 +458,22 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "control_enabled": bool(self._option(CONF_CONTROL_ENABLED)),
                 "strategy_profile": str(self._option(CONF_STRATEGY_PROFILE)),
                 "terminal_soc_mode": str(self._option(CONF_TERMINAL_SOC_MODE)),
+                "grid_import_limit_w": float(self._option(CONF_GRID_IMPORT_LIMIT_W)),
+                "grid_export_limit_w": float(self._option(CONF_GRID_EXPORT_LIMIT_W)),
+                "grid_import_power_entity": str(
+                    self._option(CONF_GRID_IMPORT_POWER_ENTITY)
+                ),
+                "grid_import_average_power_entity": str(
+                    self._option(CONF_GRID_IMPORT_AVERAGE_POWER_ENTITY)
+                ),
                 **periodic_full_charge,
+                "discharge_power_mode": str(self._option(CONF_DISCHARGE_POWER_MODE)),
+                "discharge_spread_price_tolerance_pct": float(
+                    self._option(CONF_DISCHARGE_SPREAD_PRICE_TOLERANCE)
+                ),
+                "discharge_spread_max_hours": float(
+                    self._option(CONF_DISCHARGE_SPREAD_MAX_HOURS)
+                ),
                 "nordpool_resolution_minutes": int(self._option(CONF_RESOLUTION)),
                 "price_slots": [
                     self._serialize_price_slot(slot) for slot in future_slots
@@ -446,8 +497,36 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if decision.action == "discharge" and not discharge_allowed:
             return self._idle_from(decision, temp_reason or "discharging not allowed")
 
+        if decision.action == "discharge":
+            self._shape_discharge_decision(
+                decision=decision,
+                future_slots=future_slots,
+                current_energy=current_energy,
+                min_energy=min_energy,
+                now=now,
+            )
+
         if decision.action in {"charge", "discharge"}:
-            limited_power = self._apply_grid_limit(decision.action, decision.target_power_w)
+            if decision.action == "charge":
+                decision.grid_charge_headroom_w = self._grid_charge_headroom_w(
+                    load_power_w=decision.load_power_w,
+                    grid_import_power_w=decision.grid_import_power_w,
+                    grid_import_average_power_w=decision.grid_import_average_power_w,
+                )
+            limited_power = self._apply_grid_limit(
+                decision.action,
+                decision.target_power_w,
+                load_power_w=decision.load_power_w,
+                grid_import_power_w=decision.grid_import_power_w,
+                grid_import_average_power_w=decision.grid_import_average_power_w,
+            )
+            if limited_power < decision.target_power_w:
+                decision.attributes["target_power_before_grid_limit_w"] = round(
+                    decision.target_power_w, 1
+                )
+                decision.reason = (
+                    f"{decision.reason}; grid limit reduced target power"
+                )
             if limited_power < float(self._option(CONF_MIN_ACTIVE_POWER_W)):
                 return self._idle_from(decision, "target below minimum active power")
             decision.target_power_w = limited_power
@@ -758,21 +837,197 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return False, False, f"BMS temperature above guard ({bms_temp:.1f} C)"
         return True, True, None
 
-    def _apply_grid_limit(self, action: str, target_power_w: float) -> float:
-        """Limit battery power to avoid exceeding configured grid connection limits."""
-        load_power = max(
-            self._state_float(str(self._option(CONF_LOAD_POWER_ENTITY))) or 0.0,
-            0.0,
+    def _shape_discharge_decision(
+        self,
+        decision: Decision,
+        future_slots: list[PriceSlot],
+        current_energy: float,
+        min_energy: float,
+        now: datetime,
+    ) -> None:
+        """Spread export over nearby high-price slots when the economic loss is small."""
+        mode = str(self._option(CONF_DISCHARGE_POWER_MODE))
+        decision.attributes["target_power_before_shaping_w"] = round(
+            decision.target_power_w, 1
         )
+
+        if mode != "spread" or decision.target_power_w <= 0 or not future_slots:
+            decision.attributes["discharge_spread_reason"] = "disabled"
+            return
+
+        tolerance_pct = max(
+            float(self._option(CONF_DISCHARGE_SPREAD_PRICE_TOLERANCE)), 0.0
+        )
+        max_window_h = max(float(self._option(CONF_DISCHARGE_SPREAD_MAX_HOURS)), 0.25)
+        charge_eff = math.sqrt(float(self._option(CONF_ROUND_TRIP_EFFICIENCY)))
+        discharge_eff = charge_eff
+        sell_adder = float(self._option(CONF_SELL_COST_ADDER))
+        required_margin = float(self._option(CONF_CYCLE_COST)) + float(
+            self._option(CONF_MIN_PROFIT_MARGIN)
+        )
+
+        current_sell_price = future_slots[0].price - sell_adder
+        if current_sell_price <= required_margin:
+            decision.attributes["discharge_spread_reason"] = (
+                "current slot below required discharge margin"
+            )
+            return
+
+        price_floor = current_sell_price - abs(current_sell_price) * tolerance_pct / 100
+        price_floor = max(price_floor, required_margin)
+        eligible_slots: list[PriceSlot] = []
+        eligible_duration_h = 0.0
+        for slot_index, slot in enumerate(future_slots):
+            duration_h = self._slot_duration_hours(
+                slot, now if slot_index == 0 else None
+            )
+            if duration_h <= 0:
+                continue
+            sell_price = slot.price - sell_adder
+            if sell_price + 1e-9 < price_floor:
+                break
+            if eligible_duration_h >= max_window_h:
+                break
+
+            remaining_h = max(max_window_h - eligible_duration_h, 0.0)
+            if remaining_h <= 0:
+                break
+            eligible_slots.append(slot)
+            eligible_duration_h += min(duration_h, remaining_h)
+
+        if len(eligible_slots) <= 1 or eligible_duration_h <= 0:
+            decision.attributes["discharge_spread_reason"] = (
+                "no adjacent high-price slots within tolerance"
+            )
+            return
+
+        planned_window_kwh = self._planned_discharge_for_slots(
+            decision.attributes.get("dispatch_plan", []),
+            eligible_slots,
+        )
+        if planned_window_kwh <= 0:
+            planned_window_kwh = (
+                decision.target_power_w
+                * self._slot_duration_hours(future_slots[0], now)
+                / 1000
+            )
+
+        available_ac_kwh = max(current_energy - min_energy, 0.0) * discharge_eff
+        energy_to_spread_kwh = min(planned_window_kwh, available_ac_kwh)
+        if energy_to_spread_kwh <= 0:
+            decision.attributes["discharge_spread_reason"] = (
+                "no discharge energy available above reserve"
+            )
+            return
+
+        spread_power_w = energy_to_spread_kwh / eligible_duration_h * 1000
+        shaped_power_w = min(decision.target_power_w, spread_power_w)
+        if decision.target_power_w - shaped_power_w < 100:
+            decision.attributes["discharge_spread_reason"] = (
+                "planned energy already uses the selected high-price window"
+            )
+            return
+
+        decision.target_power_w = shaped_power_w
+        decision.target_power_percent = self._power_to_percent("discharge", shaped_power_w)
+        decision.reason = (
+            f"{decision.reason}; discharge spread over "
+            f"{eligible_duration_h:.2f} h high-price window"
+        )
+        decision.attributes.update(
+            {
+                "discharge_spread_reason": "applied",
+                "discharge_spread_price_floor": round(price_floor, 5),
+                "discharge_spread_slots": len(eligible_slots),
+                "discharge_spread_window_hours": round(eligible_duration_h, 3),
+                "discharge_spread_energy_kwh": round(energy_to_spread_kwh, 3),
+            }
+        )
+
+    def _planned_discharge_for_slots(
+        self,
+        dispatch_plan: Any,
+        slots: list[PriceSlot],
+    ) -> float:
+        """Return planned discharge energy for serialized slots."""
+        if not isinstance(dispatch_plan, list):
+            return 0.0
+
+        slot_starts = {self._serialize_price_slot(slot)["start"] for slot in slots}
+        planned = 0.0
+        for row in dispatch_plan:
+            if not isinstance(row, dict):
+                continue
+            if row.get("action") != "discharge" or row.get("start") not in slot_starts:
+                continue
+            try:
+                planned += float(row.get("energy_kwh") or 0.0)
+            except (TypeError, ValueError):
+                continue
+        return max(planned, 0.0)
+
+    def _apply_grid_limit(
+        self,
+        action: str,
+        target_power_w: float,
+        *,
+        load_power_w: float | None,
+        grid_import_power_w: float | None,
+        grid_import_average_power_w: float | None,
+    ) -> float:
+        """Limit battery power to avoid exceeding configured grid connection limits."""
+        load_power = max(load_power_w or 0.0, 0.0)
         if action == "charge":
-            import_limit = float(self._option(CONF_GRID_IMPORT_LIMIT_W))
-            if import_limit > 0:
-                return min(target_power_w, max(import_limit - load_power, 0.0))
+            charge_headroom_w = self._grid_charge_headroom_w(
+                load_power_w=load_power_w,
+                grid_import_power_w=grid_import_power_w,
+                grid_import_average_power_w=grid_import_average_power_w,
+            )
+            if charge_headroom_w is not None:
+                return min(target_power_w, charge_headroom_w)
         elif action == "discharge":
             export_limit = float(self._option(CONF_GRID_EXPORT_LIMIT_W))
             if export_limit > 0:
                 return min(target_power_w, max(export_limit + load_power, 0.0))
         return target_power_w
+
+    def _grid_charge_headroom_w(
+        self,
+        *,
+        load_power_w: float | None,
+        grid_import_power_w: float | None,
+        grid_import_average_power_w: float | None,
+    ) -> float | None:
+        """Return allowed charge power from house/grid import readings."""
+        import_limit = float(self._option(CONF_GRID_IMPORT_LIMIT_W))
+        if import_limit <= 0:
+            return None
+
+        has_load_power = load_power_w is not None
+        load_power = max(load_power_w or 0.0, 0.0)
+        limits = [max(import_limit - load_power, 0.0)]
+        grid_readings = [
+            max(value, 0.0)
+            for value in (grid_import_power_w, grid_import_average_power_w)
+            if value is not None
+        ]
+        if grid_readings:
+            current_charge_w = (
+                self._requested_charge_power_w() if has_load_power else 0.0
+            )
+            limits.append(max(import_limit - max(grid_readings) + current_charge_w, 0.0))
+        return min(limits)
+
+    def _requested_charge_power_w(self) -> float:
+        """Return the currently requested battery charge power, if known."""
+        percent = self._state_float(str(self._option(CONF_POWER_REF_ENTITY)))
+        if percent is None:
+            percent = self._last_power_percent
+        if percent is None or percent >= 0:
+            return 0.0
+
+        full_scale = max(float(self._option(CONF_INVERTER_FULL_SCALE_POWER_W)), 1.0)
+        return min(abs(percent) / 100 * full_scale, full_scale)
 
     def _power_to_percent(self, action: str, power_w: float) -> float:
         """Convert AC watt target into the signed H3X power reference percentage."""
@@ -801,6 +1056,23 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "end": dt_util.as_local(slot.end).isoformat(),
             "price": round(slot.price, 5),
         }
+
+    def _power_state_w(self, entity_id: str | None) -> float | None:
+        """Read a Home Assistant power entity and normalize W/kW/MW to watts."""
+        value = self._state_float(entity_id)
+        if value is None or not entity_id:
+            return value
+
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            return value
+        unit = str((state.attributes or {}).get("unit_of_measurement") or "").lower()
+        unit = unit.replace(" ", "")
+        if unit in {"kw", "kilowatt", "kilowatts"}:
+            return value * 1000
+        if unit in {"mw", "megawatt", "megawatts"}:
+            return value * 1_000_000
+        return value
 
     def _state_float(self, entity_id: str | None) -> float | None:
         """Read a Home Assistant entity as a float."""
