@@ -15,6 +15,22 @@ def read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def literal_assignments(source: str) -> dict[str, object]:
+    """Return top-level literal assignments from a Python source string."""
+    tree = ast.parse(source)
+    values: dict[str, object] = {}
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
+            continue
+        try:
+            values[node.targets[0].id] = ast.literal_eval(node.value)
+        except (ValueError, SyntaxError):
+            continue
+    return values
+
+
 def main() -> None:
     const_source = read(INTEGRATION / "const.py")
     config_flow_source = read(INTEGRATION / "config_flow.py")
@@ -58,9 +74,17 @@ def main() -> None:
         "grid_import_average_power_entity",
         "battery_module_count",
         "battery_module_count_entity",
+        "battery_system_capacity_entity",
+        "battery_usable_capacity_entity",
+        "battery_system_capacity_kwh",
+        "battery_usable_capacity_kwh",
+        "battery_usable_depth_of_discharge",
         "battery_capacity_warning",
         "battery_capacity_unconfirmed",
+        "max_charge_c_rate",
+        "max_discharge_c_rate",
         "_power_state_w",
+        "_energy_state_kwh",
         "_shape_discharge_decision",
         "_battery_configuration",
     ):
@@ -73,6 +97,33 @@ def main() -> None:
         raise AssertionError("old 20 kWh scaffold capacity must not be the default")
     if "FORCE_H3_MODULE_CAPACITY_KWH = 5.12" not in const_source:
         raise AssertionError("Force H3 module capacity constant is missing")
+    if "FORCE_H3_USABLE_DOD = 0.95" not in const_source:
+        raise AssertionError("Force H3 usable depth-of-discharge constant is missing")
+    if "FORCE_H3_SYSTEM_CAPACITY_KWH" not in const_source:
+        raise AssertionError("Force H3 system capacity table is missing")
+    if "FORCE_H3_USABLE_CAPACITY_KWH" not in const_source:
+        raise AssertionError("Force H3 usable capacity table is missing")
+    assignments = literal_assignments(const_source)
+    system_capacity = assignments["FORCE_H3_SYSTEM_CAPACITY_KWH"]
+    usable_capacity = assignments["FORCE_H3_USABLE_CAPACITY_KWH"]
+    usable_dod = float(assignments["FORCE_H3_USABLE_DOD"])
+    expected_modules = set(range(2, 8))
+    if set(system_capacity) != expected_modules:
+        raise AssertionError("system capacity table must cover 2-7 modules")
+    if set(usable_capacity) != expected_modules:
+        raise AssertionError("usable capacity table must cover 2-7 modules")
+    if usable_dod != 0.95:
+        raise AssertionError("usable DoD must match the Force H3 datasheet")
+    for modules in expected_modules:
+        theoretical = round(float(system_capacity[modules]) * usable_dod, 2)
+        actual = float(usable_capacity[modules])
+        deviation = abs(actual - theoretical) / theoretical * 100
+        if deviation > 5.0:
+            raise AssertionError(
+                f"usable capacity for {modules} modules differs by {deviation:.2f}%"
+            )
+    if '"version": "0.6.2"' not in read(INTEGRATION / "manifest.json"):
+        raise AssertionError("manifest version must be 0.6.2")
     if 'key="discharge_power_mode"' not in read(INTEGRATION / "select.py"):
         raise AssertionError("discharge power mode select is missing")
     number_source = read(INTEGRATION / "number.py")
@@ -80,9 +131,18 @@ def main() -> None:
         "battery_module_count",
         "discharge_spread_price_tolerance",
         "discharge_spread_max_hours",
+        "max_charge_c_rate",
+        "max_discharge_c_rate",
     ):
         if token not in number_source:
             raise AssertionError(f"{token} number control is missing")
+    for token in (
+        'key="battery_system_capacity"',
+        'key="battery_usable_capacity"',
+        'key="target_c_rate"',
+    ):
+        if token not in sensor_source:
+            raise AssertionError(f"{token} sensor is missing")
 
 
 if __name__ == "__main__":

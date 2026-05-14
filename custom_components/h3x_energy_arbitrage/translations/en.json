@@ -18,11 +18,14 @@
           "grid_import_power_entity": "Real-time grid import power sensor entity",
           "grid_import_average_power_entity": "Averaged grid import power sensor entity",
           "battery_module_count_entity": "Battery module count sensor entity",
+          "battery_system_capacity_entity": "Battery system capacity sensor entity",
+          "battery_usable_capacity_entity": "Battery usable capacity sensor entity",
           "bms_temperature_entity": "BMS temperature sensor entity",
           "charge_limit_soc_entity": "Charge limit SOC number entity",
           "discharge_limit_soc_entity": "Discharge limit SOC number entity",
           "battery_module_count": "Battery module count",
-          "battery_capacity_kwh": "Battery capacity kWh, derived from module count",
+          "battery_capacity_kwh": "Battery system capacity kWh, derived from module count",
+          "battery_usable_capacity_kwh": "Battery usable capacity kWh, derived from module count",
           "min_soc": "Minimum SOC %",
           "reserve_soc": "Reserve SOC %",
           "max_soc": "Maximum SOC %",
@@ -40,6 +43,8 @@
           "peak_power_w": "Peak charge/discharge power W",
           "enable_peak_power": "Allow peak power when spread is high",
           "peak_extra_margin_per_kwh": "Extra spread required for peak power per kWh",
+          "max_charge_c_rate": "Maximum charge C-rate",
+          "max_discharge_c_rate": "Maximum discharge C-rate",
           "inverter_full_scale_power_w": "Power represented by 100% H3X reference W",
           "min_active_power_w": "Minimum active power W",
           "grid_import_limit_w": "Grid import limit W, 0 disables",
@@ -60,6 +65,8 @@
       "soc_range": "Maximum SOC must be higher than minimum and reserve SOC.",
       "full_charge_threshold_above_target": "The SOC counted as full must be less than or equal to the periodic full-charge target SOC.",
       "capacity_module_mismatch": "Battery capacity must match the configured Force H3 module count.",
+      "usable_capacity_module_mismatch": "Usable battery capacity must match the configured Force H3 module count.",
+      "usable_capacity_dod_mismatch": "Usable battery capacity must stay within about 5% of the datasheet 95% depth-of-discharge value.",
       "peak_below_continuous": "Peak power must be greater than or equal to continuous power.",
       "full_scale_below_peak": "Full-scale inverter power must be greater than or equal to peak power."
     }
@@ -83,11 +90,14 @@
           "grid_import_power_entity": "Real-time grid import power sensor entity",
           "grid_import_average_power_entity": "Averaged grid import power sensor entity",
           "battery_module_count_entity": "Battery module count sensor entity",
+          "battery_system_capacity_entity": "Battery system capacity sensor entity",
+          "battery_usable_capacity_entity": "Battery usable capacity sensor entity",
           "bms_temperature_entity": "BMS temperature sensor entity",
           "charge_limit_soc_entity": "Charge limit SOC number entity",
           "discharge_limit_soc_entity": "Discharge limit SOC number entity",
           "battery_module_count": "Battery module count",
-          "battery_capacity_kwh": "Battery capacity kWh, derived from module count",
+          "battery_capacity_kwh": "Battery system capacity kWh, derived from module count",
+          "battery_usable_capacity_kwh": "Battery usable capacity kWh, derived from module count",
           "min_soc": "Minimum SOC %",
           "reserve_soc": "Reserve SOC %",
           "max_soc": "Maximum SOC %",
@@ -105,6 +115,8 @@
           "peak_power_w": "Peak charge/discharge power W",
           "enable_peak_power": "Allow peak power when spread is high",
           "peak_extra_margin_per_kwh": "Extra spread required for peak power per kWh",
+          "max_charge_c_rate": "Maximum charge C-rate",
+          "max_discharge_c_rate": "Maximum discharge C-rate",
           "inverter_full_scale_power_w": "Power represented by 100% H3X reference W",
           "min_active_power_w": "Minimum active power W",
           "grid_import_limit_w": "Grid import limit W, 0 disables",
@@ -132,6 +144,15 @@
       },
       "target_power_percent": {
         "name": "Target power percent"
+      },
+      "battery_system_capacity": {
+        "name": "Battery system capacity"
+      },
+      "battery_usable_capacity": {
+        "name": "Battery usable capacity"
+      },
+      "target_c_rate": {
+        "name": "Target C-rate"
       },
       "current_price": {
         "name": "Current price"
@@ -198,13 +219,19 @@
       },
       "discharge_spread_max_hours": {
         "name": "Discharge spread maximum window"
+      },
+      "max_charge_c_rate": {
+        "name": "Maximum charge C-rate"
+      },
+      "max_discharge_c_rate": {
+        "name": "Maximum discharge C-rate"
       }
     }
   },
   "issues": {
     "battery_capacity_unconfirmed": {
       "title": "Confirm Force H3 battery module count",
-      "description": "The arbitrage optimizer is using {modules} Force H3 modules ({capacity} kWh nominal). {warning}. A wrong module count changes planned charge/discharge energy and SOC reserve calculations, so confirm the installed module count before enabling automatic control."
+      "description": "The arbitrage optimizer is using {modules} Force H3 modules ({system_capacity} kWh system, {usable_capacity} kWh usable). {warning}. A wrong module count or capacity changes planned charge/discharge energy and SOC reserve calculations, so confirm the installed module count before enabling automatic control."
     }
   }
 }

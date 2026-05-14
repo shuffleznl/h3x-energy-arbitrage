@@ -22,6 +22,9 @@ from .const import (
     CONF_BATTERY_CAPACITY_KWH,
     CONF_BATTERY_MODULE_COUNT,
     CONF_BATTERY_MODULE_COUNT_ENTITY,
+    CONF_BATTERY_SYSTEM_CAPACITY_ENTITY,
+    CONF_BATTERY_USABLE_CAPACITY_ENTITY,
+    CONF_BATTERY_USABLE_CAPACITY_KWH,
     CONF_BMS_TEMP_ENTITY,
     CONF_BUY_COST_ADDER,
     CONF_CHARGE_LIMIT_SOC_ENTITY,
@@ -44,6 +47,8 @@ from .const import (
     CONF_INVERTER_FULL_SCALE_POWER_W,
     CONF_LOAD_POWER_ENTITY,
     CONF_MAX_BMS_TEMP_C,
+    CONF_MAX_CHARGE_C_RATE,
+    CONF_MAX_DISCHARGE_C_RATE,
     CONF_MAX_SOC,
     CONF_MIN_ACTIVE_POWER_W,
     CONF_MIN_CHARGE_TEMP_C,
@@ -71,6 +76,9 @@ from .const import (
     FORCE_H3_MAX_MODULES,
     FORCE_H3_MIN_MODULES,
     FORCE_H3_MODULE_CAPACITY_KWH,
+    FORCE_H3_SYSTEM_CAPACITY_KWH,
+    FORCE_H3_USABLE_CAPACITY_KWH,
+    FORCE_H3_USABLE_DOD,
     NORDPOOL_CONF_AREAS,
     NORDPOOL_CONF_CURRENCY,
     NORDPOOL_DOMAIN,
@@ -102,7 +110,8 @@ class BatteryConfiguration:
     """Resolved Force H3 battery stack configuration."""
 
     module_count: int
-    capacity_kwh: float
+    system_capacity_kwh: float
+    usable_capacity_kwh: float
     source: str
     warning: str | None = None
 
@@ -231,7 +240,15 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if CONF_BATTERY_MODULE_COUNT in options:
             modules = self._clamp_module_count(options[CONF_BATTERY_MODULE_COUNT])
             options[CONF_BATTERY_MODULE_COUNT] = float(modules)
-            options[CONF_BATTERY_CAPACITY_KWH] = self._capacity_for_modules(modules)
+            options[CONF_BATTERY_CAPACITY_KWH] = self._system_capacity_for_modules(
+                modules
+            )
+            options[CONF_BATTERY_USABLE_CAPACITY_KWH] = (
+                self._usable_capacity_for_modules(modules)
+            )
+        for key in (CONF_MAX_CHARGE_C_RATE, CONF_MAX_DISCHARGE_C_RATE):
+            if key in options:
+                options[key] = min(max(float(options[key]), 0.05), 0.5)
         if CONF_DISCHARGE_SPREAD_PRICE_TOLERANCE in options:
             options[CONF_DISCHARGE_SPREAD_PRICE_TOLERANCE] = min(
                 max(float(options[CONF_DISCHARGE_SPREAD_PRICE_TOLERANCE]), 0.0),
@@ -406,7 +423,9 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return Decision(action="failsafe", reason="battery SOC entity unavailable")
 
         battery_config = self._battery_configuration()
-        capacity_kwh = battery_config.capacity_kwh
+        system_capacity_kwh = battery_config.system_capacity_kwh
+        usable_capacity_kwh = battery_config.usable_capacity_kwh
+        capacity_kwh = usable_capacity_kwh
         min_soc = max(float(self._option(CONF_MIN_SOC)), 0.0)
         reserve_soc = max(float(self._option(CONF_RESERVE_SOC)), min_soc)
         normal_max_soc = min(
@@ -448,6 +467,7 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             terminal_energy=terminal_energy,
             charge_allowed=charge_allowed,
             discharge_allowed=discharge_allowed,
+            usable_capacity_kwh=usable_capacity_kwh,
             periodic_full_charge_due=force_full_charge,
         )
 
@@ -477,10 +497,30 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "normal_max_soc": normal_max_soc,
                 "max_soc": max_soc,
                 "capacity_kwh": capacity_kwh,
+                "capacity_basis": "usable",
+                "battery_system_capacity_kwh": system_capacity_kwh,
+                "battery_usable_capacity_kwh": usable_capacity_kwh,
+                "battery_usable_depth_of_discharge": FORCE_H3_USABLE_DOD,
                 "battery_module_count": battery_config.module_count,
                 "battery_module_capacity_kwh": FORCE_H3_MODULE_CAPACITY_KWH,
                 "battery_capacity_source": battery_config.source,
                 "battery_capacity_warning": battery_config.warning,
+                "max_charge_c_rate": float(self._option(CONF_MAX_CHARGE_C_RATE)),
+                "max_discharge_c_rate": float(
+                    self._option(CONF_MAX_DISCHARGE_C_RATE)
+                ),
+                "max_charge_c_rate_power_w": round(
+                    usable_capacity_kwh
+                    * float(self._option(CONF_MAX_CHARGE_C_RATE))
+                    * 1000,
+                    1,
+                ),
+                "max_discharge_c_rate_power_w": round(
+                    usable_capacity_kwh
+                    * float(self._option(CONF_MAX_DISCHARGE_C_RATE))
+                    * 1000,
+                    1,
+                ),
                 "temperature_guard": temp_reason,
                 "control_enabled": bool(self._option(CONF_CONTROL_ENABLED)),
                 "strategy_profile": str(self._option(CONF_STRATEGY_PROFILE)),
@@ -560,19 +600,22 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             decision.target_power_percent = self._power_to_percent(
                 decision.action, limited_power
             )
+            decision.attributes["target_c_rate"] = round(
+                limited_power / max(usable_capacity_kwh * 1000, 1.0),
+                3,
+            )
 
         return decision
 
     def _battery_configuration(self) -> BatteryConfiguration:
-        """Resolve module count and nominal capacity for the Force H3 stack."""
+        """Resolve module count and datasheet capacity for the Force H3 stack."""
         module_entity = str(self._option(CONF_BATTERY_MODULE_COUNT_ENTITY)).strip()
         module_count_from_entity = self._state_float(module_entity)
         if module_count_from_entity is not None:
             modules = int(round(module_count_from_entity))
             if self._valid_module_count(modules):
-                return BatteryConfiguration(
-                    module_count=modules,
-                    capacity_kwh=self._capacity_for_modules(modules),
+                return self._configuration_for_modules(
+                    modules,
                     source=f"entity:{module_entity}",
                 )
 
@@ -588,9 +631,8 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     f"module count entity {module_entity} is unavailable or outside "
                     f"{FORCE_H3_MIN_MODULES}-{FORCE_H3_MAX_MODULES}; using configured value"
                 )
-            return BatteryConfiguration(
-                module_count=modules,
-                capacity_kwh=self._capacity_for_modules(modules),
+            return self._configuration_for_modules(
+                modules,
                 source="configured_module_count",
                 warning=warning,
             )
@@ -599,21 +641,75 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if legacy_capacity is not None:
             inferred_modules = self._modules_from_capacity(legacy_capacity)
             if inferred_modules is not None:
-                return BatteryConfiguration(
-                    module_count=inferred_modules,
-                    capacity_kwh=self._capacity_for_modules(inferred_modules),
+                return self._configuration_for_modules(
+                    inferred_modules,
                     source="legacy_capacity",
                 )
 
         modules = int(DEFAULTS[CONF_BATTERY_MODULE_COUNT])
-        return BatteryConfiguration(
-            module_count=modules,
-            capacity_kwh=self._capacity_for_modules(modules),
+        return self._configuration_for_modules(
+            modules,
             source="default_module_count",
             warning=(
                 "using the default Force H3 module count; confirm the real number "
                 "of installed modules before enabling automatic control"
             ),
+        )
+
+    def _configuration_for_modules(
+        self,
+        module_count: int,
+        *,
+        source: str,
+        warning: str | None = None,
+    ) -> BatteryConfiguration:
+        """Build a battery configuration and validate capacity entities."""
+        system_capacity = self._system_capacity_for_modules(module_count)
+        usable_capacity = self._usable_capacity_for_modules(module_count)
+        warnings = [warning] if warning else []
+        sources = [source]
+
+        system_entity = str(self._option(CONF_BATTERY_SYSTEM_CAPACITY_ENTITY)).strip()
+        usable_entity = str(self._option(CONF_BATTERY_USABLE_CAPACITY_ENTITY)).strip()
+        system_from_entity = self._energy_state_kwh(system_entity)
+        usable_from_entity = self._energy_state_kwh(usable_entity)
+
+        if system_from_entity is not None:
+            if self._capacity_deviation_pct(system_from_entity, system_capacity) <= 5.0:
+                system_capacity = round(system_from_entity, 2)
+                sources.append(f"system_entity:{system_entity}")
+            else:
+                warnings.append(
+                    f"system capacity entity {system_entity} reads "
+                    f"{system_from_entity:.2f} kWh, expected about "
+                    f"{system_capacity:.2f} kWh for {module_count} modules"
+                )
+
+        if usable_from_entity is not None:
+            expected_usable = self._usable_capacity_for_modules(module_count)
+            if self._capacity_deviation_pct(usable_from_entity, expected_usable) <= 5.0:
+                usable_capacity = round(usable_from_entity, 2)
+                sources.append(f"usable_entity:{usable_entity}")
+            else:
+                warnings.append(
+                    f"usable capacity entity {usable_entity} reads "
+                    f"{usable_from_entity:.2f} kWh, expected about "
+                    f"{expected_usable:.2f} kWh for {module_count} modules"
+                )
+
+        theoretical_usable = system_capacity * FORCE_H3_USABLE_DOD
+        if self._capacity_deviation_pct(usable_capacity, theoretical_usable) > 5.0:
+            warnings.append(
+                f"usable capacity {usable_capacity:.2f} kWh differs by more than "
+                f"5% from 95% of system capacity ({theoretical_usable:.2f} kWh)"
+            )
+
+        return BatteryConfiguration(
+            module_count=module_count,
+            system_capacity_kwh=round(system_capacity, 2),
+            usable_capacity_kwh=round(usable_capacity, 2),
+            source="+".join(sources),
+            warning="; ".join(warnings) if warnings else None,
         )
 
     def _configured_value(self, key: str) -> Any:
@@ -625,23 +721,41 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return None
 
     def _modules_from_capacity(self, capacity_kwh: Any) -> int | None:
-        """Infer Force H3 module count from a nominal capacity value."""
+        """Infer Force H3 module count from a system or usable capacity value."""
         try:
             capacity = float(capacity_kwh)
         except (TypeError, ValueError):
             return None
 
-        modules = int(round(capacity / FORCE_H3_MODULE_CAPACITY_KWH))
-        if not self._valid_module_count(modules):
-            return None
-        if abs(capacity - self._capacity_for_modules(modules)) > 0.05:
-            return None
-        return modules
+        for modules in range(FORCE_H3_MIN_MODULES, FORCE_H3_MAX_MODULES + 1):
+            if self._capacity_deviation_pct(
+                capacity,
+                self._system_capacity_for_modules(modules),
+            ) <= 5.0:
+                return modules
+            if self._capacity_deviation_pct(
+                capacity,
+                self._usable_capacity_for_modules(modules),
+            ) <= 5.0:
+                return modules
+        return None
 
     @staticmethod
-    def _capacity_for_modules(module_count: int) -> float:
-        """Return nominal Force H3 capacity for a module count."""
-        return round(module_count * FORCE_H3_MODULE_CAPACITY_KWH, 2)
+    def _system_capacity_for_modules(module_count: int) -> float:
+        """Return datasheet Force H3 system capacity for a module count."""
+        return FORCE_H3_SYSTEM_CAPACITY_KWH[module_count]
+
+    @staticmethod
+    def _usable_capacity_for_modules(module_count: int) -> float:
+        """Return datasheet Force H3 usable capacity for a module count."""
+        return FORCE_H3_USABLE_CAPACITY_KWH[module_count]
+
+    @staticmethod
+    def _capacity_deviation_pct(value: float, expected: float) -> float:
+        """Return absolute percentage deviation from the expected capacity."""
+        if expected <= 0:
+            return 0.0
+        return abs(value - expected) / expected * 100
 
     @staticmethod
     def _valid_module_count(module_count: int) -> bool:
@@ -673,7 +787,12 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             translation_key=BATTERY_CAPACITY_ISSUE_ID,
             translation_placeholders={
                 "modules": str(attributes.get("battery_module_count") or "?"),
-                "capacity": str(attributes.get("capacity_kwh") or "?"),
+                "system_capacity": str(
+                    attributes.get("battery_system_capacity_kwh") or "?"
+                ),
+                "usable_capacity": str(
+                    attributes.get("battery_usable_capacity_kwh") or "?"
+                ),
                 "warning": str(warning),
             },
         )
@@ -721,6 +840,7 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         terminal_energy: float,
         charge_allowed: bool,
         discharge_allowed: bool,
+        usable_capacity_kwh: float,
         periodic_full_charge_due: bool = False,
     ) -> Decision:
         """Run a dynamic-programming arbitrage optimizer."""
@@ -753,9 +873,18 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for slot_index in range(len(future_slots) - 1, -1, -1):
             slot = future_slots[slot_index]
             duration_h = self._slot_duration_hours(slot, now if slot_index == 0 else None)
-            pmax_w = self._slot_power_limit(slot, future_slots)
-            max_charge_delta = pmax_w * duration_h / 1000 * charge_eff
-            max_discharge_delta = pmax_w * duration_h / 1000 / discharge_eff
+            charge_pmax_w = self._slot_power_limit(
+                future_slots,
+                "charge",
+                usable_capacity_kwh,
+            )
+            discharge_pmax_w = self._slot_power_limit(
+                future_slots,
+                "discharge",
+                usable_capacity_kwh,
+            )
+            max_charge_delta = charge_pmax_w * duration_h / 1000 * charge_eff
+            max_discharge_delta = discharge_pmax_w * duration_h / 1000 / discharge_eff
             buy_price = slot.price + buy_adder
             sell_price = slot.price - sell_adder
 
@@ -841,7 +970,14 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return Decision(
                 action="charge",
                 reason=reason,
-                target_power_w=min(target_power, self._slot_power_limit(future_slots[0], future_slots)),
+                target_power_w=min(
+                    target_power,
+                    self._slot_power_limit(
+                        future_slots,
+                        "charge",
+                        usable_capacity_kwh,
+                    ),
+                ),
                 estimated_first_slot_value=first_rewards.get((0, initial_idx), 0.0),
                 estimated_plan_value=plan_value,
                 estimated_today_value=today_value,
@@ -857,7 +993,14 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return Decision(
             action="discharge",
             reason=reason,
-            target_power_w=min(target_power, self._slot_power_limit(future_slots[0], future_slots)),
+            target_power_w=min(
+                target_power,
+                self._slot_power_limit(
+                    future_slots,
+                    "discharge",
+                    usable_capacity_kwh,
+                ),
+            ),
             estimated_first_slot_value=first_rewards.get((0, initial_idx), 0.0),
             estimated_plan_value=plan_value,
             estimated_today_value=today_value,
@@ -945,25 +1088,40 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         start = max(slot.start, now) if now is not None else slot.start
         return max((slot.end - start).total_seconds() / 3600, 0.0)
 
-    def _slot_power_limit(self, slot: PriceSlot, slots: list[PriceSlot]) -> float:
-        """Return the allowed AC power for a slot."""
+    def _slot_power_limit(
+        self,
+        slots: list[PriceSlot],
+        action: str,
+        usable_capacity_kwh: float,
+    ) -> float:
+        """Return the allowed AC power for a slot after economics and C-rate."""
         continuous = float(self._option(CONF_CONTINUOUS_POWER_W))
         peak = float(self._option(CONF_PEAK_POWER_W))
+        economic_limit = continuous
         if not bool(self._option(CONF_ENABLE_PEAK_POWER)):
-            return continuous
+            economic_limit = continuous
+        else:
+            buy_adder = float(self._option(CONF_BUY_COST_ADDER))
+            sell_adder = float(self._option(CONF_SELL_COST_ADDER))
+            required_margin = (
+                float(self._option(CONF_CYCLE_COST))
+                + float(self._option(CONF_MIN_PROFIT_MARGIN))
+                + float(self._option(CONF_PEAK_EXTRA_MARGIN))
+            )
+            min_buy = min(price_slot.price + buy_adder for price_slot in slots)
+            max_sell = max(price_slot.price - sell_adder for price_slot in slots)
+            if max_sell - min_buy > required_margin:
+                economic_limit = peak
 
-        buy_adder = float(self._option(CONF_BUY_COST_ADDER))
-        sell_adder = float(self._option(CONF_SELL_COST_ADDER))
-        required_margin = (
-            float(self._option(CONF_CYCLE_COST))
-            + float(self._option(CONF_MIN_PROFIT_MARGIN))
-            + float(self._option(CONF_PEAK_EXTRA_MARGIN))
+        c_rate_key = (
+            CONF_MAX_CHARGE_C_RATE if action == "charge" else CONF_MAX_DISCHARGE_C_RATE
         )
-        min_buy = min(price_slot.price + buy_adder for price_slot in slots)
-        max_sell = max(price_slot.price - sell_adder for price_slot in slots)
-        if max_sell - min_buy > required_margin:
-            return peak
-        return continuous
+        c_rate_limit_w = max(usable_capacity_kwh, 0.0) * float(
+            self._option(c_rate_key)
+        ) * 1000
+        if c_rate_limit_w <= 0:
+            return economic_limit
+        return min(economic_limit, c_rate_limit_w)
 
     def _temperature_permissions(
         self, bms_temp: float | None
@@ -1214,6 +1372,23 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return value * 1000
         if unit in {"mw", "megawatt", "megawatts"}:
             return value * 1_000_000
+        return value
+
+    def _energy_state_kwh(self, entity_id: str | None) -> float | None:
+        """Read a Home Assistant energy entity and normalize Wh/kWh/MWh to kWh."""
+        value = self._state_float(entity_id)
+        if value is None or not entity_id:
+            return value
+
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            return value
+        unit = str((state.attributes or {}).get("unit_of_measurement") or "").lower()
+        unit = unit.replace(" ", "")
+        if unit in {"wh", "watthour", "watthours"}:
+            return value / 1000
+        if unit in {"mwh", "megawatthour", "megawatthours"}:
+            return value * 1000
         return value
 
     def _state_float(self, entity_id: str | None) -> float | None:

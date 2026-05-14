@@ -20,11 +20,14 @@ CONF_LOAD_POWER_ENTITY = "load_power_entity"
 CONF_GRID_IMPORT_POWER_ENTITY = "grid_import_power_entity"
 CONF_GRID_IMPORT_AVERAGE_POWER_ENTITY = "grid_import_average_power_entity"
 CONF_BATTERY_MODULE_COUNT_ENTITY = "battery_module_count_entity"
+CONF_BATTERY_SYSTEM_CAPACITY_ENTITY = "battery_system_capacity_entity"
+CONF_BATTERY_USABLE_CAPACITY_ENTITY = "battery_usable_capacity_entity"
 CONF_BMS_TEMP_ENTITY = "bms_temperature_entity"
 CONF_CHARGE_LIMIT_SOC_ENTITY = "charge_limit_soc_entity"
 CONF_DISCHARGE_LIMIT_SOC_ENTITY = "discharge_limit_soc_entity"
 
 CONF_BATTERY_CAPACITY_KWH = "battery_capacity_kwh"
+CONF_BATTERY_USABLE_CAPACITY_KWH = "battery_usable_capacity_kwh"
 CONF_BATTERY_MODULE_COUNT = "battery_module_count"
 CONF_MIN_SOC = "min_soc"
 CONF_MAX_SOC = "max_soc"
@@ -44,6 +47,8 @@ CONF_CONTINUOUS_POWER_W = "continuous_power_w"
 CONF_PEAK_POWER_W = "peak_power_w"
 CONF_ENABLE_PEAK_POWER = "enable_peak_power"
 CONF_PEAK_EXTRA_MARGIN = "peak_extra_margin_per_kwh"
+CONF_MAX_CHARGE_C_RATE = "max_charge_c_rate"
+CONF_MAX_DISCHARGE_C_RATE = "max_discharge_c_rate"
 CONF_INVERTER_FULL_SCALE_POWER_W = "inverter_full_scale_power_w"
 CONF_MIN_ACTIVE_POWER_W = "min_active_power_w"
 CONF_GRID_IMPORT_LIMIT_W = "grid_import_limit_w"
@@ -76,6 +81,12 @@ DEFAULT_GRID_IMPORT_AVERAGE_POWER_ENTITY = (
 DEFAULT_BATTERY_MODULE_COUNT_ENTITY = (
     "sensor.pylontech_h3x_bridge_battery_module_count"
 )
+DEFAULT_BATTERY_SYSTEM_CAPACITY_ENTITY = (
+    "sensor.pylontech_h3x_bridge_battery_system_capacity"
+)
+DEFAULT_BATTERY_USABLE_CAPACITY_ENTITY = (
+    "sensor.pylontech_h3x_bridge_battery_usable_capacity"
+)
 DEFAULT_BMS_TEMP_ENTITY = "sensor.pylontech_h3x_bridge_bms_temperature"
 DEFAULT_CHARGE_LIMIT_SOC_ENTITY = "number.pylontech_h3x_bridge_charge_limit_soc"
 DEFAULT_DISCHARGE_LIMIT_SOC_ENTITY = (
@@ -96,11 +107,14 @@ DEFAULTS = {
     CONF_GRID_IMPORT_POWER_ENTITY: DEFAULT_GRID_IMPORT_POWER_ENTITY,
     CONF_GRID_IMPORT_AVERAGE_POWER_ENTITY: DEFAULT_GRID_IMPORT_AVERAGE_POWER_ENTITY,
     CONF_BATTERY_MODULE_COUNT_ENTITY: DEFAULT_BATTERY_MODULE_COUNT_ENTITY,
+    CONF_BATTERY_SYSTEM_CAPACITY_ENTITY: DEFAULT_BATTERY_SYSTEM_CAPACITY_ENTITY,
+    CONF_BATTERY_USABLE_CAPACITY_ENTITY: DEFAULT_BATTERY_USABLE_CAPACITY_ENTITY,
     CONF_BMS_TEMP_ENTITY: DEFAULT_BMS_TEMP_ENTITY,
     CONF_CHARGE_LIMIT_SOC_ENTITY: DEFAULT_CHARGE_LIMIT_SOC_ENTITY,
     CONF_DISCHARGE_LIMIT_SOC_ENTITY: DEFAULT_DISCHARGE_LIMIT_SOC_ENTITY,
     CONF_BATTERY_MODULE_COUNT: 6.0,
     CONF_BATTERY_CAPACITY_KWH: 30.72,
+    CONF_BATTERY_USABLE_CAPACITY_KWH: 29.17,
     CONF_MIN_SOC: 15.0,
     CONF_MAX_SOC: 90.0,
     CONF_RESERVE_SOC: 20.0,
@@ -118,6 +132,8 @@ DEFAULTS = {
     CONF_PEAK_POWER_W: 13800.0,
     CONF_ENABLE_PEAK_POWER: True,
     CONF_PEAK_EXTRA_MARGIN: 0.05,
+    CONF_MAX_CHARGE_C_RATE: 0.5,
+    CONF_MAX_DISCHARGE_C_RATE: 0.45,
     CONF_INVERTER_FULL_SCALE_POWER_W: 13800.0,
     CONF_MIN_ACTIVE_POWER_W: 500.0,
     CONF_GRID_IMPORT_LIMIT_W: 17500.0,
@@ -164,6 +180,23 @@ RESOLUTIONS = (15, 30, 60)
 TERMINAL_SOC_MODES = ("preserve_current", "reserve_only")
 DISCHARGE_POWER_MODES = ("spread", "max_economic")
 FORCE_H3_MODULE_CAPACITY_KWH = 5.12
+FORCE_H3_USABLE_DOD = 0.95
+FORCE_H3_SYSTEM_CAPACITY_KWH = {
+    2: 10.24,
+    3: 15.36,
+    4: 20.48,
+    5: 25.60,
+    6: 30.72,
+    7: 35.84,
+}
+FORCE_H3_USABLE_CAPACITY_KWH = {
+    2: 9.69,
+    3: 14.73,
+    4: 19.48,
+    5: 24.32,
+    6: 29.17,
+    7: 34.01,
+}
 FORCE_H3_MIN_MODULES = 2
 FORCE_H3_MAX_MODULES = 7
 STRATEGY_PROFILES = ("conservative", "typical", "aggressive", "custom")
@@ -179,6 +212,8 @@ STRATEGY_PROFILE_SETTINGS = {
         CONF_RESERVE_SOC: 25.0,
         CONF_MIN_PROFIT_MARGIN: 0.03,
         CONF_ENABLE_PEAK_POWER: False,
+        CONF_MAX_CHARGE_C_RATE: 0.35,
+        CONF_MAX_DISCHARGE_C_RATE: 0.35,
     },
     "typical": {
         CONF_TERMINAL_SOC_MODE: "preserve_current",
@@ -191,6 +226,8 @@ STRATEGY_PROFILE_SETTINGS = {
         CONF_RESERVE_SOC: 20.0,
         CONF_MIN_PROFIT_MARGIN: 0.015,
         CONF_ENABLE_PEAK_POWER: True,
+        CONF_MAX_CHARGE_C_RATE: 0.5,
+        CONF_MAX_DISCHARGE_C_RATE: 0.45,
     },
     "aggressive": {
         CONF_TERMINAL_SOC_MODE: "reserve_only",
@@ -201,6 +238,8 @@ STRATEGY_PROFILE_SETTINGS = {
         CONF_RESERVE_SOC: 15.0,
         CONF_MIN_PROFIT_MARGIN: 0.0,
         CONF_ENABLE_PEAK_POWER: True,
+        CONF_MAX_CHARGE_C_RATE: 0.5,
+        CONF_MAX_DISCHARGE_C_RATE: 0.5,
     },
 }
 

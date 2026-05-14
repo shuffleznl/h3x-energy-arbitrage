@@ -12,6 +12,9 @@ from homeassistant.core import HomeAssistant, callback
 from .const import (
     CONF_AREA,
     CONF_BATTERY_CAPACITY_KWH,
+    CONF_BATTERY_SYSTEM_CAPACITY_ENTITY,
+    CONF_BATTERY_USABLE_CAPACITY_ENTITY,
+    CONF_BATTERY_USABLE_CAPACITY_KWH,
     CONF_BMS_TEMP_ENTITY,
     CONF_BUY_COST_ADDER,
     CONF_CHARGE_LIMIT_SOC_ENTITY,
@@ -34,6 +37,8 @@ from .const import (
     CONF_INVERTER_FULL_SCALE_POWER_W,
     CONF_LOAD_POWER_ENTITY,
     CONF_MAX_BMS_TEMP_C,
+    CONF_MAX_CHARGE_C_RATE,
+    CONF_MAX_DISCHARGE_C_RATE,
     CONF_MAX_SOC,
     CONF_MIN_ACTIVE_POWER_W,
     CONF_MIN_CHARGE_TEMP_C,
@@ -65,7 +70,9 @@ from .const import (
     DOMAIN,
     FORCE_H3_MAX_MODULES,
     FORCE_H3_MIN_MODULES,
-    FORCE_H3_MODULE_CAPACITY_KWH,
+    FORCE_H3_SYSTEM_CAPACITY_KWH,
+    FORCE_H3_USABLE_CAPACITY_KWH,
+    FORCE_H3_USABLE_DOD,
     NORDPOOL_AREAS,
     NORDPOOL_CONF_AREAS,
     NORDPOOL_CONF_CURRENCY,
@@ -189,6 +196,14 @@ def _schema(
                 default=data[CONF_BATTERY_MODULE_COUNT_ENTITY],
             ): str,
             vol.Optional(
+                CONF_BATTERY_SYSTEM_CAPACITY_ENTITY,
+                default=data[CONF_BATTERY_SYSTEM_CAPACITY_ENTITY],
+            ): str,
+            vol.Optional(
+                CONF_BATTERY_USABLE_CAPACITY_ENTITY,
+                default=data[CONF_BATTERY_USABLE_CAPACITY_ENTITY],
+            ): str,
+            vol.Optional(
                 CONF_BMS_TEMP_ENTITY, default=data[CONF_BMS_TEMP_ENTITY]
             ): str,
             vol.Optional(
@@ -212,8 +227,18 @@ def _schema(
             ): vol.All(
                 vol.Coerce(float),
                 vol.Range(
-                    min=FORCE_H3_MIN_MODULES * FORCE_H3_MODULE_CAPACITY_KWH,
-                    max=FORCE_H3_MAX_MODULES * FORCE_H3_MODULE_CAPACITY_KWH,
+                    min=min(FORCE_H3_SYSTEM_CAPACITY_KWH.values()),
+                    max=max(FORCE_H3_SYSTEM_CAPACITY_KWH.values()),
+                ),
+            ),
+            vol.Optional(
+                CONF_BATTERY_USABLE_CAPACITY_KWH,
+                default=data[CONF_BATTERY_USABLE_CAPACITY_KWH],
+            ): vol.All(
+                vol.Coerce(float),
+                vol.Range(
+                    min=min(FORCE_H3_USABLE_CAPACITY_KWH.values()),
+                    max=max(FORCE_H3_USABLE_CAPACITY_KWH.values()),
                 ),
             ),
             vol.Optional(CONF_MIN_SOC, default=data[CONF_MIN_SOC]): vol.All(
@@ -272,6 +297,13 @@ def _schema(
             vol.Optional(
                 CONF_PEAK_EXTRA_MARGIN, default=data[CONF_PEAK_EXTRA_MARGIN]
             ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=1.0)),
+            vol.Optional(
+                CONF_MAX_CHARGE_C_RATE, default=data[CONF_MAX_CHARGE_C_RATE]
+            ): vol.All(vol.Coerce(float), vol.Range(min=0.05, max=0.5)),
+            vol.Optional(
+                CONF_MAX_DISCHARGE_C_RATE,
+                default=data[CONF_MAX_DISCHARGE_C_RATE],
+            ): vol.All(vol.Coerce(float), vol.Range(min=0.05, max=0.5)),
             vol.Optional(
                 CONF_INVERTER_FULL_SCALE_POWER_W,
                 default=data[CONF_INVERTER_FULL_SCALE_POWER_W],
@@ -352,16 +384,16 @@ def _apply_profile_when_changed(
 
 
 def _apply_module_count_settings(data: dict[str, Any]) -> dict[str, Any]:
-    """Derive nominal Force H3 capacity from the configured module count."""
+    """Derive datasheet Force H3 capacities from the configured module count."""
     updated = dict(data)
     if CONF_BATTERY_MODULE_COUNT in updated:
         modules = int(round(float(updated[CONF_BATTERY_MODULE_COUNT])))
         modules = min(max(modules, FORCE_H3_MIN_MODULES), FORCE_H3_MAX_MODULES)
         updated[CONF_BATTERY_MODULE_COUNT] = float(modules)
-        updated[CONF_BATTERY_CAPACITY_KWH] = round(
-            modules * FORCE_H3_MODULE_CAPACITY_KWH,
-            2,
-        )
+        updated[CONF_BATTERY_CAPACITY_KWH] = FORCE_H3_SYSTEM_CAPACITY_KWH[modules]
+        updated[CONF_BATTERY_USABLE_CAPACITY_KWH] = FORCE_H3_USABLE_CAPACITY_KWH[
+            modules
+        ]
     return updated
 
 
@@ -378,12 +410,22 @@ def _validate_user_input(data: dict[str, Any]) -> dict[str, str]:
     full_charge_threshold = float(data[CONF_PERIODIC_FULL_CHARGE_THRESHOLD_SOC])
     module_count = int(round(float(data[CONF_BATTERY_MODULE_COUNT])))
     capacity_kwh = float(data[CONF_BATTERY_CAPACITY_KWH])
-    expected_capacity = round(module_count * FORCE_H3_MODULE_CAPACITY_KWH, 2)
+    usable_capacity_kwh = float(data[CONF_BATTERY_USABLE_CAPACITY_KWH])
+    expected_capacity = FORCE_H3_SYSTEM_CAPACITY_KWH[module_count]
+    expected_usable_capacity = FORCE_H3_USABLE_CAPACITY_KWH[module_count]
+    theoretical_usable = round(expected_capacity * FORCE_H3_USABLE_DOD, 2)
 
     if max(min_soc, reserve_soc) >= max_soc:
         errors[CONF_MAX_SOC] = "soc_range"
     if abs(capacity_kwh - expected_capacity) > 0.02:
         errors[CONF_BATTERY_CAPACITY_KWH] = "capacity_module_mismatch"
+    if abs(usable_capacity_kwh - expected_usable_capacity) > 0.02:
+        errors[CONF_BATTERY_USABLE_CAPACITY_KWH] = "usable_capacity_module_mismatch"
+    elif (
+        abs(usable_capacity_kwh - theoretical_usable) / theoretical_usable * 100
+        > 5.0
+    ):
+        errors[CONF_BATTERY_USABLE_CAPACITY_KWH] = "usable_capacity_dod_mismatch"
     if full_charge_threshold > full_charge_target:
         errors[CONF_PERIODIC_FULL_CHARGE_THRESHOLD_SOC] = (
             "full_charge_threshold_above_target"
