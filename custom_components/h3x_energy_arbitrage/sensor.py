@@ -66,6 +66,8 @@ def _decision_attributes(data: dict[str, Any]) -> dict[str, Any]:
             "capacity_kwh",
             "temperature_guard",
             "control_enabled",
+            "strategy_profile",
+            "terminal_soc_mode",
             "nordpool_resolution_minutes",
             "normal_max_soc",
             "periodic_full_charge_enabled",
@@ -147,6 +149,13 @@ SENSORS: tuple[H3XArbitrageSensorDescription, ...] = (
         translation_key="current_price",
         name="Current price",
         value_fn=lambda data: data.get("current_price"),
+    ),
+    H3XArbitrageSensorDescription(
+        key="reason",
+        translation_key="reason",
+        name="Decision reason",
+        icon="mdi:text-search",
+        value_fn=lambda data: data.get("reason"),
     ),
     H3XArbitrageSensorDescription(
         key="first_slot_value",

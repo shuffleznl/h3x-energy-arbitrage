@@ -4,13 +4,14 @@ from homeassistant.const import Platform
 
 DOMAIN = "h3x_energy_arbitrage"
 NORDPOOL_DOMAIN = "nordpool"
-PLATFORMS = [Platform.SENSOR]
+PLATFORMS = [Platform.NUMBER, Platform.SELECT, Platform.SENSOR, Platform.SWITCH]
 
 CONF_NORDPOOL_CONFIG_ENTRY = "nordpool_config_entry"
 CONF_AREA = "area"
 CONF_CURRENCY = "currency"
 CONF_RESOLUTION = "resolution"
 CONF_CONTROL_ENABLED = "control_enabled"
+CONF_STRATEGY_PROFILE = "strategy_profile"
 
 CONF_EMS_MODE_ENTITY = "ems_mode_entity"
 CONF_POWER_REF_ENTITY = "power_ref_entity"
@@ -55,6 +56,7 @@ DEFAULT_NORDPOOL_ENTRY = "auto"
 DEFAULT_AREA = "auto"
 DEFAULT_CURRENCY = "auto"
 DEFAULT_RESOLUTION = 15
+DEFAULT_STRATEGY_PROFILE = "typical"
 
 DEFAULT_EMS_MODE_ENTITY = "select.pylontech_h3x_bridge_ems_mode"
 DEFAULT_POWER_REF_ENTITY = "number.pylontech_h3x_bridge_charge_discharge_power_ref"
@@ -72,6 +74,7 @@ DEFAULTS = {
     CONF_CURRENCY: DEFAULT_CURRENCY,
     CONF_RESOLUTION: DEFAULT_RESOLUTION,
     CONF_CONTROL_ENABLED: True,
+    CONF_STRATEGY_PROFILE: DEFAULT_STRATEGY_PROFILE,
     CONF_EMS_MODE_ENTITY: DEFAULT_EMS_MODE_ENTITY,
     CONF_POWER_REF_ENTITY: DEFAULT_POWER_REF_ENTITY,
     CONF_SOC_ENTITY: DEFAULT_SOC_ENTITY,
@@ -137,6 +140,37 @@ NORDPOOL_AREAS = (
 
 CURRENCIES = ("auto", "DKK", "EUR", "NOK", "PLN", "SEK")
 RESOLUTIONS = (15, 30, 60)
+TERMINAL_SOC_MODES = ("preserve_current", "reserve_only")
+STRATEGY_PROFILES = ("conservative", "typical", "aggressive", "custom")
+STRATEGY_PROFILE_SETTINGS = {
+    "conservative": {
+        CONF_TERMINAL_SOC_MODE: "preserve_current",
+        CONF_PERIODIC_FULL_CHARGE_ENABLED: True,
+        CONF_MIN_SOC: 20.0,
+        CONF_MAX_SOC: 85.0,
+        CONF_RESERVE_SOC: 25.0,
+        CONF_MIN_PROFIT_MARGIN: 0.03,
+        CONF_ENABLE_PEAK_POWER: False,
+    },
+    "typical": {
+        CONF_TERMINAL_SOC_MODE: "preserve_current",
+        CONF_PERIODIC_FULL_CHARGE_ENABLED: True,
+        CONF_MIN_SOC: 15.0,
+        CONF_MAX_SOC: 90.0,
+        CONF_RESERVE_SOC: 20.0,
+        CONF_MIN_PROFIT_MARGIN: 0.015,
+        CONF_ENABLE_PEAK_POWER: True,
+    },
+    "aggressive": {
+        CONF_TERMINAL_SOC_MODE: "reserve_only",
+        CONF_PERIODIC_FULL_CHARGE_ENABLED: False,
+        CONF_MIN_SOC: 15.0,
+        CONF_MAX_SOC: 100.0,
+        CONF_RESERVE_SOC: 15.0,
+        CONF_MIN_PROFIT_MARGIN: 0.0,
+        CONF_ENABLE_PEAK_POWER: True,
+    },
+}
 
 NORDPOOL_CONF_AREAS = "areas"
 NORDPOOL_CONF_CURRENCY = "currency"

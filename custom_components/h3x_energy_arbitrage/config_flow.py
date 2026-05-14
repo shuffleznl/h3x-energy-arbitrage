@@ -47,10 +47,12 @@ from .const import (
     CONF_ROUND_TRIP_EFFICIENCY,
     CONF_SELL_COST_ADDER,
     CONF_SOC_ENTITY,
+    CONF_STRATEGY_PROFILE,
     CONF_TERMINAL_SOC_MODE,
     CONF_UPDATE_INTERVAL_MINUTES,
     CONF_USER_EMS_MODE,
     CURRENCIES,
+    DEFAULT_STRATEGY_PROFILE,
     DEFAULTS,
     DOMAIN,
     NORDPOOL_AREAS,
@@ -58,6 +60,9 @@ from .const import (
     NORDPOOL_CONF_CURRENCY,
     NORDPOOL_DOMAIN,
     RESOLUTIONS,
+    STRATEGY_PROFILE_SETTINGS,
+    STRATEGY_PROFILES,
+    TERMINAL_SOC_MODES,
 )
 
 
@@ -73,6 +78,7 @@ class H3XArbitrageConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            user_input = _apply_profile_when_changed(user_input)
             errors = _validate_user_input(user_input)
             if not errors:
                 await self.async_set_unique_id(DOMAIN)
@@ -94,15 +100,11 @@ class H3XArbitrageConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         config_entry: config_entries.ConfigEntry,
     ) -> config_entries.OptionsFlow:
         """Create the options flow."""
-        return H3XArbitrageOptionsFlow(config_entry)
+        return H3XArbitrageOptionsFlow()
 
 
 class H3XArbitrageOptionsFlow(config_entries.OptionsFlow):
     """Handle options."""
-
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -112,6 +114,7 @@ class H3XArbitrageOptionsFlow(config_entries.OptionsFlow):
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            user_input = _apply_profile_when_changed(user_input, current)
             errors = _validate_user_input(user_input)
             if not errors:
                 return self.async_create_entry(title="", data=user_input)
@@ -146,6 +149,9 @@ def _schema(
             vol.Optional(
                 CONF_CONTROL_ENABLED, default=data[CONF_CONTROL_ENABLED]
             ): bool,
+            vol.Optional(
+                CONF_STRATEGY_PROFILE, default=data[CONF_STRATEGY_PROFILE]
+            ): vol.In(STRATEGY_PROFILES),
             vol.Optional(
                 CONF_EMS_MODE_ENTITY, default=data[CONF_EMS_MODE_ENTITY]
             ): str,
@@ -182,7 +188,7 @@ def _schema(
             ),
             vol.Optional(
                 CONF_TERMINAL_SOC_MODE, default=data[CONF_TERMINAL_SOC_MODE]
-            ): vol.In(("preserve_current", "reserve_only")),
+            ): vol.In(TERMINAL_SOC_MODES),
             vol.Optional(
                 CONF_PERIODIC_FULL_CHARGE_ENABLED,
                 default=data[CONF_PERIODIC_FULL_CHARGE_ENABLED],
@@ -274,6 +280,24 @@ def _autodetected_defaults(hass: HomeAssistant) -> dict[str, Any]:
     if currency:
         defaults[CONF_CURRENCY] = str(currency).upper()
     return defaults
+
+
+def _apply_profile_when_changed(
+    data: dict[str, Any],
+    current: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Apply preset values when the submitted strategy profile changed."""
+    profile = str(data.get(CONF_STRATEGY_PROFILE, DEFAULT_STRATEGY_PROFILE))
+    previous = (
+        DEFAULT_STRATEGY_PROFILE
+        if current is None
+        else str(current.get(CONF_STRATEGY_PROFILE, DEFAULT_STRATEGY_PROFILE))
+    )
+    if profile in STRATEGY_PROFILE_SETTINGS and profile != previous:
+        updated = dict(data)
+        updated.update(STRATEGY_PROFILE_SETTINGS[profile])
+        return updated
+    return data
 
 
 def _validate_user_input(data: dict[str, Any]) -> dict[str, str]:

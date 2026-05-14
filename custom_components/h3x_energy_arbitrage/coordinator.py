@@ -54,6 +54,7 @@ from .const import (
     CONF_ROUND_TRIP_EFFICIENCY,
     CONF_SELL_COST_ADDER,
     CONF_SOC_ENTITY,
+    CONF_STRATEGY_PROFILE,
     CONF_TERMINAL_SOC_MODE,
     CONF_UPDATE_INTERVAL_MINUTES,
     CONF_USER_EMS_MODE,
@@ -62,6 +63,7 @@ from .const import (
     NORDPOOL_CONF_AREAS,
     NORDPOOL_CONF_CURRENCY,
     NORDPOOL_DOMAIN,
+    STRATEGY_PROFILE_SETTINGS,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -151,6 +153,46 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if key in self.entry.options:
             return self.entry.options[key]
         return self.entry.data.get(key, DEFAULTS[key])
+
+    async def async_options_updated(self) -> None:
+        """Apply updated options without reloading entities."""
+        update_minutes = float(self._option(CONF_UPDATE_INTERVAL_MINUTES))
+        self.update_interval = timedelta(minutes=max(update_minutes, 1.0))
+        await self.async_request_refresh()
+
+    async def async_set_option(self, key: str, value: Any) -> None:
+        """Persist one option and refresh the optimizer."""
+        options = {**self.entry.options, key: value}
+        self._normalize_mutable_options(options)
+        if key != CONF_STRATEGY_PROFILE:
+            options[CONF_STRATEGY_PROFILE] = "custom"
+        self.hass.config_entries.async_update_entry(self.entry, options=options)
+        await self.async_options_updated()
+
+    async def async_apply_strategy_profile(self, profile: str) -> None:
+        """Apply a strategy profile to optimizer options."""
+        options = {**self.entry.options, CONF_STRATEGY_PROFILE: profile}
+        options.update(STRATEGY_PROFILE_SETTINGS.get(profile, {}))
+        self._normalize_mutable_options(options)
+        self.hass.config_entries.async_update_entry(self.entry, options=options)
+        await self.async_options_updated()
+
+    def _normalize_mutable_options(self, options: dict[str, Any]) -> None:
+        """Keep runtime control options inside valid cross-field ranges."""
+        target_soc = float(
+            options.get(
+                CONF_PERIODIC_FULL_CHARGE_TARGET_SOC,
+                self._option(CONF_PERIODIC_FULL_CHARGE_TARGET_SOC),
+            )
+        )
+        threshold_soc = float(
+            options.get(
+                CONF_PERIODIC_FULL_CHARGE_THRESHOLD_SOC,
+                self._option(CONF_PERIODIC_FULL_CHARGE_THRESHOLD_SOC),
+            )
+        )
+        if threshold_soc > target_soc:
+            options[CONF_PERIODIC_FULL_CHARGE_THRESHOLD_SOC] = target_soc
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Update price data, compute the decision, and apply controls."""
@@ -378,6 +420,8 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "capacity_kwh": capacity_kwh,
                 "temperature_guard": temp_reason,
                 "control_enabled": bool(self._option(CONF_CONTROL_ENABLED)),
+                "strategy_profile": str(self._option(CONF_STRATEGY_PROFILE)),
+                "terminal_soc_mode": str(self._option(CONF_TERMINAL_SOC_MODE)),
                 **periodic_full_charge,
                 "nordpool_resolution_minutes": int(self._option(CONF_RESOLUTION)),
                 "price_slots": [

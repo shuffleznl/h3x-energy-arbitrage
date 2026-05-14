@@ -10,7 +10,7 @@ This repository contains one HACS integration:
 
 ## Requirements
 
-- Home Assistant `2024.6.0` or newer.
+- Home Assistant `2024.12.0` or newer.
 - HACS.
 - Nord Pool integration configured in Home Assistant.
 - Pylontech H3X Bridge installed from `https://github.com/shuffleznl/pylontech-fh3x-bridge`.
@@ -49,6 +49,7 @@ After the decision sensors look correct, enable automatic control from the integ
 - `sensor.h3x_energy_arbitrage_target_power`
 - `sensor.h3x_energy_arbitrage_target_power_percent`
 - `sensor.h3x_energy_arbitrage_current_price`
+- `sensor.h3x_energy_arbitrage_decision_reason`
 - `sensor.h3x_energy_arbitrage_first_slot_value`
 - `sensor.h3x_energy_arbitrage_estimated_savings`
 - `sensor.h3x_energy_arbitrage_estimated_savings_today`
@@ -59,6 +60,21 @@ After the decision sensors look correct, enable automatic control from the integ
 - `sensor.h3x_energy_arbitrage_price_slots_available`
 
 The `price_plan` sensor is a unitless diagnostic carrier for Lovelace charting. It carries `price_slots` and `dispatch_plan` attributes, and those large chart arrays are excluded from recorder history to keep the Home Assistant database small. Currency values use the resolved Nord Pool ISO 4217 currency code, for example `EUR` or `DKK`.
+
+## Runtime Controls
+
+The integration exposes Home Assistant control entities so the strategy can be adjusted without opening the full options form:
+
+- `select.h3x_energy_arbitrage_strategy_profile`: `conservative`, `typical`, `aggressive`, or `custom`.
+- `select.h3x_energy_arbitrage_end_of_horizon_soc`: preserve the current SOC by the end of the horizon, or allow discharge down to reserve.
+- `switch.h3x_energy_arbitrage_periodic_full_charge`: enable or disable the periodic full-charge constraint.
+- `number.h3x_energy_arbitrage_periodic_full_charge_interval`, `target_soc`, and `threshold_soc`: tune the periodic full-charge cadence and completion threshold.
+
+Strategy profiles apply these tradeoffs:
+
+- `conservative`: preserve current SOC, keep periodic full charge enabled, use a higher profit margin, lower normal maximum SOC, and disable peak power.
+- `typical`: balanced default behavior.
+- `aggressive`: prioritize estimated savings by allowing reserve-only end-of-horizon behavior, disabling periodic full-charge forcing, allowing 100% maximum SOC, and removing extra profit margin. This is economically aggressive and less battery-conservative.
 
 ## Economics And Limits
 
@@ -96,4 +112,5 @@ uv --cache-dir .uv-cache run --python 3.13 python -m compileall custom_component
 uv --cache-dir .uv-cache run --python 3.13 python tools/validate_hacs_structure.py
 uv --cache-dir .uv-cache run --python 3.13 python tools/validate_sensor_metadata.py
 uv --cache-dir .uv-cache run --python 3.13 python tools/validate_periodic_full_charge.py
+uv --cache-dir .uv-cache run --python 3.13 python tools/validate_control_entities.py
 ```

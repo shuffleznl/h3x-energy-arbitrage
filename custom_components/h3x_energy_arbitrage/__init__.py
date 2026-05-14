@@ -13,7 +13,7 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> bool:
     """Set up the integration from a config entry."""
-    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
+    entry.async_on_unload(entry.add_update_listener(async_options_updated))
     coordinator = H3XArbitrageCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
 
@@ -33,9 +33,10 @@ async def async_unload_entry(
     return unload_ok
 
 
-async def async_reload_entry(
+async def async_options_updated(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> None:
-    """Reload a config entry."""
-    await async_unload_entry(hass, entry)
-    await async_setup_entry(hass, entry)
+    """Handle options updated from the options flow or control entities."""
+    coordinator = getattr(entry, "runtime_data", None)
+    if coordinator:
+        await coordinator.async_options_updated()

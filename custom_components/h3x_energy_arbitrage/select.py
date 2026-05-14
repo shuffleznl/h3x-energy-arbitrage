@@ -1,0 +1,119 @@
+"""Select controls for Pylontech H3X energy arbitrage."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+from homeassistant.components.select import SelectEntity, SelectEntityDescription
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+from .const import (
+    CONF_STRATEGY_PROFILE,
+    CONF_TERMINAL_SOC_MODE,
+    DOMAIN,
+    STRATEGY_PROFILES,
+    TERMINAL_SOC_MODES,
+)
+from .coordinator import H3XArbitrageCoordinator
+
+
+@dataclass(frozen=True, kw_only=True)
+class H3XArbitrageSelectDescription(SelectEntityDescription):
+    """Describe an arbitrage select control."""
+
+    option_key: str
+    options: tuple[str, ...]
+
+
+SELECTS: tuple[H3XArbitrageSelectDescription, ...] = (
+    H3XArbitrageSelectDescription(
+        key="strategy_profile",
+        translation_key="strategy_profile",
+        name="Strategy profile",
+        icon="mdi:tune-variant",
+        option_key=CONF_STRATEGY_PROFILE,
+        options=STRATEGY_PROFILES,
+    ),
+    H3XArbitrageSelectDescription(
+        key="terminal_soc_mode",
+        translation_key="terminal_soc_mode",
+        name="End-of-horizon SOC",
+        icon="mdi:battery-clock",
+        option_key=CONF_TERMINAL_SOC_MODE,
+        options=TERMINAL_SOC_MODES,
+    ),
+)
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up select controls from a config entry."""
+    coordinator: H3XArbitrageCoordinator = entry.runtime_data
+    async_add_entities(
+        H3XArbitrageSelect(coordinator, entry, description)
+        for description in SELECTS
+    )
+
+
+class H3XArbitrageSelect(CoordinatorEntity[H3XArbitrageCoordinator], SelectEntity):
+    """A runtime select control for the arbitrage optimizer."""
+
+    entity_description: H3XArbitrageSelectDescription
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self,
+        coordinator: H3XArbitrageCoordinator,
+        entry: ConfigEntry,
+        description: H3XArbitrageSelectDescription,
+    ) -> None:
+        """Initialize the select control."""
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._attr_unique_id = f"{entry.entry_id}_{description.key}"
+        self._attr_options = list(description.options)
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": "Pylontech H3X Energy Arbitrage",
+            "manufacturer": "Local",
+            "model": "Nord Pool Optimizer",
+        }
+
+    @property
+    def current_option(self) -> str | None:
+        """Return the selected option."""
+        return str(self.coordinator._option(self.entity_description.option_key))
+
+    async def async_select_option(self, option: str) -> None:
+        """Update the selected optimizer option."""
+        if option not in self.entity_description.options:
+            raise ValueError(f"Unsupported option {option}")
+        if self.entity_description.option_key == CONF_STRATEGY_PROFILE:
+            await self.coordinator.async_apply_strategy_profile(option)
+        else:
+            await self.coordinator.async_set_option(
+                self.entity_description.option_key,
+                option,
+            )
+        self.async_write_ha_state()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return profile details for the strategy selector."""
+        if self.entity_description.option_key != CONF_STRATEGY_PROFILE:
+            return {}
+        return {
+            "conservative": "preserve SOC, weekly full charge, higher profit margin, no peak power",
+            "typical": "balanced default profile",
+            "aggressive": "reserve-only horizon, no periodic full-charge constraint, 100% max SOC, lowest extra margin",
+            "custom": "manual settings differ from a built-in profile",
+        }

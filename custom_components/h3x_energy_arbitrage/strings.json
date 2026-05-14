@@ -10,6 +10,7 @@
           "currency": "Currency",
           "resolution": "Price resolution minutes",
           "control_enabled": "Enable automatic control",
+          "strategy_profile": "Strategy profile",
           "ems_mode_entity": "H3X EMS mode select entity",
           "power_ref_entity": "H3X charge/discharge power reference entity",
           "soc_entity": "Battery SOC sensor entity",
@@ -66,6 +67,7 @@
           "currency": "Currency",
           "resolution": "Price resolution minutes",
           "control_enabled": "Enable automatic control",
+          "strategy_profile": "Strategy profile",
           "ems_mode_entity": "H3X EMS mode select entity",
           "power_ref_entity": "H3X charge/discharge power reference entity",
           "soc_entity": "Battery SOC sensor entity",
@@ -119,6 +121,9 @@
       "current_price": {
         "name": "Current price"
       },
+      "reason": {
+        "name": "Decision reason"
+      },
       "first_slot_value": {
         "name": "First slot value"
       },
@@ -142,6 +147,30 @@
       },
       "slots_available": {
         "name": "Price slots available"
+      }
+    },
+    "select": {
+      "strategy_profile": {
+        "name": "Strategy profile"
+      },
+      "terminal_soc_mode": {
+        "name": "End-of-horizon SOC"
+      }
+    },
+    "switch": {
+      "periodic_full_charge_enabled": {
+        "name": "Periodic full charge"
+      }
+    },
+    "number": {
+      "periodic_full_charge_interval_days": {
+        "name": "Periodic full-charge interval"
+      },
+      "periodic_full_charge_target_soc": {
+        "name": "Periodic full-charge target SOC"
+      },
+      "periodic_full_charge_threshold_soc": {
+        "name": "Periodic full-charge threshold SOC"
       }
     }
   }
