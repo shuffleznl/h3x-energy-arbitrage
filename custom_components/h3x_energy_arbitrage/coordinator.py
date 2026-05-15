@@ -191,6 +191,7 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self._state_loaded = False
         self._last_full_charge_at: datetime | None = None
+        self._last_price_fetch_errors: list[str] = []
 
     def _option(self, key: str) -> Any:
         """Return an option value with a default fallback."""
@@ -269,10 +270,12 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self._async_record_full_charge_if_reached(current_soc)
             slots = await self._fetch_price_slots()
             decision = self._compute_decision(slots)
-            self._update_battery_capacity_issue(decision)
         except Exception as err:  # pylint: disable=broad-except
             LOGGER.exception("Failed to compute arbitrage decision")
             decision = Decision(action="failsafe", reason=str(err))
+
+        self._ensure_capacity_attributes(decision)
+        self._update_battery_capacity_issue(decision)
 
         if bool(self._option(CONF_CONTROL_ENABLED)):
             await self._apply_decision(decision)
@@ -321,20 +324,50 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         area = self._resolve_area()
         currency = self._resolve_currency()
         resolution = int(self._option(CONF_RESOLUTION))
+        self._last_price_fetch_errors = []
 
         today = dt_util.now().date()
-        responses: list[dict[str, Any]] = []
+        responses: list[Any] = []
         for day in (today, today + timedelta(days=1)):
-            response = await self._call_nordpool(entry_id, area, currency, resolution, day)
-            responses.extend(response.get(area, []))
+            response = await self._call_nordpool(
+                entry_id,
+                area,
+                currency,
+                resolution,
+                day,
+                "get_price_indices_for_date",
+            )
+            rows = self._price_rows_from_response(response, area)
+            if not rows:
+                response = await self._call_nordpool(
+                    entry_id,
+                    area,
+                    currency,
+                    resolution,
+                    day,
+                    "get_prices_for_date",
+                )
+                rows = self._price_rows_from_response(response, area)
+            responses.extend(rows)
 
         slots: dict[tuple[str, str], PriceSlot] = {}
         now = dt_util.utcnow()
         horizon_end = now + timedelta(hours=float(self._option(CONF_HORIZON_HOURS)))
 
         for row in responses:
-            start = dt_util.parse_datetime(str(row["start"]))
-            end = dt_util.parse_datetime(str(row["end"]))
+            if isinstance(row, dict):
+                start_raw = row.get("start")
+                end_raw = row.get("end")
+                price_raw = row.get("price")
+            else:
+                start_raw = getattr(row, "start", None)
+                end_raw = getattr(row, "end", None)
+                price_raw = getattr(row, "price", None)
+            if start_raw is None or end_raw is None or price_raw is None:
+                continue
+
+            start = dt_util.parse_datetime(str(start_raw))
+            end = dt_util.parse_datetime(str(end_raw))
             if start is None or end is None:
                 continue
             start = dt_util.as_utc(start)
@@ -342,7 +375,7 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if end <= now or start >= horizon_end:
                 continue
             key = (start.isoformat(), end.isoformat())
-            slots[key] = PriceSlot(start=start, end=end, price=float(row["price"]) / 1000)
+            slots[key] = PriceSlot(start=start, end=end, price=float(price_raw) / 1000)
 
         return sorted(slots.values(), key=lambda slot: slot.start)
 
@@ -353,39 +386,75 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         currency: str,
         resolution: int,
         day: date,
+        service_name: str,
     ) -> dict[str, Any]:
         """Call the Nord Pool service and return its response."""
+        payload: dict[str, Any] = {
+            "config_entry": entry_id,
+            "date": day.isoformat(),
+            "areas": area,
+            "currency": currency,
+        }
+        if service_name == "get_price_indices_for_date":
+            payload["resolution"] = resolution
+
         try:
             response = await self.hass.services.async_call(
                 NORDPOOL_DOMAIN,
-                "get_price_indices_for_date",
-                {
-                    "config_entry": entry_id,
-                    "date": day.isoformat(),
-                    "areas": area,
-                    "currency": currency,
-                    "resolution": resolution,
-                },
+                service_name,
+                payload,
                 blocking=True,
                 return_response=True,
             )
         except HomeAssistantError as err:
-            LOGGER.debug("Nord Pool price fetch failed for %s: %s", day, err)
+            message = f"{service_name} failed for {day.isoformat()}: {err}"
+            self._last_price_fetch_errors.append(message)
+            LOGGER.debug("Nord Pool price fetch failed: %s", message)
             return {area: []}
 
         if not isinstance(response, dict):
             return {area: []}
         return response
 
+    def _price_rows_from_response(
+        self,
+        response: dict[str, Any],
+        area: str,
+    ) -> list[Any]:
+        """Extract a market-area price row list from Nord Pool action output."""
+        if not isinstance(response, dict):
+            return []
+        area_upper = area.upper()
+        for key, value in response.items():
+            if str(key).upper() == area_upper and isinstance(value, list):
+                return value
+        for nested_key in ("data", "prices", "values"):
+            nested = response.get(nested_key)
+            if isinstance(nested, dict):
+                rows = self._price_rows_from_response(nested, area)
+                if rows:
+                    return rows
+            if isinstance(nested, list):
+                return nested
+        list_values = [value for value in response.values() if isinstance(value, list)]
+        if len(list_values) == 1:
+            return list_values[0]
+        return []
+
     def _resolve_nordpool_entry_id(self) -> str:
         """Resolve the configured or first available Nord Pool config entry."""
         configured = str(self._option(CONF_NORDPOOL_CONFIG_ENTRY)).strip()
         entries = self.hass.config_entries.async_entries(NORDPOOL_DOMAIN)
         if configured and configured.lower() != "auto":
-            return configured
-        if not entries:
-            raise RuntimeError("Nord Pool integration is not configured")
-        return entries[0].entry_id
+            if any(entry.entry_id == configured for entry in entries):
+                return configured
+            LOGGER.warning(
+                "Configured Nord Pool config entry %s no longer exists; using auto",
+                configured,
+            )
+        if entries:
+            return entries[0].entry_id
+        raise RuntimeError("Nord Pool integration is not configured")
 
     def _resolve_area(self) -> str:
         """Resolve the configured Nord Pool area."""
@@ -423,7 +492,6 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return Decision(action="failsafe", reason="battery SOC entity unavailable")
 
         battery_config = self._battery_configuration()
-        system_capacity_kwh = battery_config.system_capacity_kwh
         usable_capacity_kwh = battery_config.usable_capacity_kwh
         capacity_kwh = usable_capacity_kwh
         min_soc = max(float(self._option(CONF_MIN_SOC)), 0.0)
@@ -496,31 +564,7 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "min_soc": floor_soc,
                 "normal_max_soc": normal_max_soc,
                 "max_soc": max_soc,
-                "capacity_kwh": capacity_kwh,
-                "capacity_basis": "usable",
-                "battery_system_capacity_kwh": system_capacity_kwh,
-                "battery_usable_capacity_kwh": usable_capacity_kwh,
-                "battery_usable_depth_of_discharge": FORCE_H3_USABLE_DOD,
-                "battery_module_count": battery_config.module_count,
-                "battery_module_capacity_kwh": FORCE_H3_MODULE_CAPACITY_KWH,
-                "battery_capacity_source": battery_config.source,
-                "battery_capacity_warning": battery_config.warning,
-                "max_charge_c_rate": float(self._option(CONF_MAX_CHARGE_C_RATE)),
-                "max_discharge_c_rate": float(
-                    self._option(CONF_MAX_DISCHARGE_C_RATE)
-                ),
-                "max_charge_c_rate_power_w": round(
-                    usable_capacity_kwh
-                    * float(self._option(CONF_MAX_CHARGE_C_RATE))
-                    * 1000,
-                    1,
-                ),
-                "max_discharge_c_rate_power_w": round(
-                    usable_capacity_kwh
-                    * float(self._option(CONF_MAX_DISCHARGE_C_RATE))
-                    * 1000,
-                    1,
-                ),
+                **self._battery_capacity_attributes(battery_config),
                 "temperature_guard": temp_reason,
                 "control_enabled": bool(self._option(CONF_CONTROL_ENABLED)),
                 "strategy_profile": str(self._option(CONF_STRATEGY_PROFILE)),
@@ -542,6 +586,7 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self._option(CONF_DISCHARGE_SPREAD_MAX_HOURS)
                 ),
                 "nordpool_resolution_minutes": int(self._option(CONF_RESOLUTION)),
+                "price_fetch_errors": list(self._last_price_fetch_errors),
                 "price_slots": [
                     self._serialize_price_slot(slot) for slot in future_slots
                 ],
@@ -606,6 +651,52 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
 
         return decision
+
+    def _ensure_capacity_attributes(self, decision: Decision) -> None:
+        """Keep capacity diagnostics available even when price fetching fails."""
+        if "battery_usable_capacity_kwh" in decision.attributes:
+            if self._last_price_fetch_errors:
+                decision.attributes["price_fetch_errors"] = list(
+                    self._last_price_fetch_errors
+                )
+            return
+        try:
+            battery_config = self._battery_configuration()
+        except Exception:  # pylint: disable=broad-except
+            LOGGER.exception("Failed to attach battery capacity diagnostics")
+            return
+        decision.attributes.update(self._battery_capacity_attributes(battery_config))
+        decision.attributes["price_fetch_errors"] = list(self._last_price_fetch_errors)
+
+    def _battery_capacity_attributes(
+        self,
+        battery_config: BatteryConfiguration,
+    ) -> dict[str, Any]:
+        """Return capacity diagnostics derived from the resolved battery stack."""
+        usable_capacity_kwh = battery_config.usable_capacity_kwh
+        return {
+            "capacity_kwh": usable_capacity_kwh,
+            "capacity_basis": "usable",
+            "battery_system_capacity_kwh": battery_config.system_capacity_kwh,
+            "battery_usable_capacity_kwh": usable_capacity_kwh,
+            "battery_usable_depth_of_discharge": FORCE_H3_USABLE_DOD,
+            "battery_module_count": battery_config.module_count,
+            "battery_module_capacity_kwh": FORCE_H3_MODULE_CAPACITY_KWH,
+            "battery_capacity_source": battery_config.source,
+            "battery_capacity_warning": battery_config.warning,
+            "max_charge_c_rate": float(self._option(CONF_MAX_CHARGE_C_RATE)),
+            "max_discharge_c_rate": float(self._option(CONF_MAX_DISCHARGE_C_RATE)),
+            "max_charge_c_rate_power_w": round(
+                usable_capacity_kwh * float(self._option(CONF_MAX_CHARGE_C_RATE)) * 1000,
+                1,
+            ),
+            "max_discharge_c_rate_power_w": round(
+                usable_capacity_kwh
+                * float(self._option(CONF_MAX_DISCHARGE_C_RATE))
+                * 1000,
+                1,
+            ),
+        }
 
     def _battery_configuration(self) -> BatteryConfiguration:
         """Resolve module count and datasheet capacity for the Force H3 stack."""

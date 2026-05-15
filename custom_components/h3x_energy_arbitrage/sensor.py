@@ -96,6 +96,7 @@ def _decision_attributes(data: dict[str, Any]) -> dict[str, Any]:
             "grid_import_power_entity",
             "grid_import_average_power_entity",
             "nordpool_resolution_minutes",
+            "price_fetch_errors",
             "normal_max_soc",
             "periodic_full_charge_enabled",
             "periodic_full_charge_due",

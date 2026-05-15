@@ -15,7 +15,9 @@ This repository contains one HACS integration:
 - Nord Pool integration configured in Home Assistant.
 - Pylontech H3X Bridge installed from `https://github.com/shuffleznl/pylontech-fh3x-bridge`.
 
-The controller calls the Nord Pool `get_price_indices_for_date` service, reads the Pylontech H3X Bridge sensors, and writes the Pylontech H3X Bridge EMS mode and charge/discharge power entities when automatic control is enabled.
+The controller calls the Nord Pool `get_price_indices_for_date` service, falls back to `get_prices_for_date` when custom-resolution indices are empty, reads the Pylontech H3X Bridge sensors, and writes the Pylontech H3X Bridge EMS mode and charge/discharge power entities when automatic control is enabled.
+
+The Nord Pool config entry is resolved automatically at runtime. If Home Assistant recreates the Nord Pool entry during an update, the controller falls back from the old stored entry ID to the current entry instead of returning empty price slots.
 
 ## HACS Installation
 
@@ -138,6 +140,10 @@ When the full-charge interval is due, the optimizer temporarily raises the charg
 ## Charging Caveat
 
 This controller writes through Pylontech H3X Bridge. If discharging works but grid charging does not, verify the H3X inverter configuration first: Work Mode `P5` charge/discharge time control or another grid-charge-capable mode, Power from Grid/import limit, charge SOC limit, BMS state, and meter configuration.
+
+## Nord Pool Update Caveat
+
+If current price is `unknown` after updating or recreating the Nord Pool integration, check the `Decision` sensor attributes for `price_fetch_errors`. Capacity sensors should still stay populated from the bridge or module-count fallback even when price fetching is temporarily unavailable.
 
 ## Validation
 

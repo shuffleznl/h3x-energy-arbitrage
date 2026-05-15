@@ -85,6 +85,9 @@ def main() -> None:
         "max_discharge_c_rate",
         "_power_state_w",
         "_energy_state_kwh",
+        "_price_rows_from_response",
+        "_ensure_capacity_attributes",
+        "_battery_capacity_attributes",
         "_shape_discharge_decision",
         "_battery_configuration",
     ):
@@ -122,8 +125,14 @@ def main() -> None:
             raise AssertionError(
                 f"usable capacity for {modules} modules differs by {deviation:.2f}%"
             )
-    if '"version": "0.6.2"' not in read(INTEGRATION / "manifest.json"):
-        raise AssertionError("manifest version must be 0.6.2")
+    if '"version": "0.6.3"' not in read(INTEGRATION / "manifest.json"):
+        raise AssertionError("manifest version must be 0.6.3")
+    if "configured and configured.lower() != \"auto\"" not in coordinator_source:
+        raise AssertionError("stale Nord Pool config entries must fall back to auto")
+    if "\"get_prices_for_date\"" not in coordinator_source:
+        raise AssertionError("Nord Pool price fetch must fall back to hourly prices")
+    if "{CONF_NORDPOOL_CONFIG_ENTRY: entry.entry_id}" in config_flow_source:
+        raise AssertionError("setup defaults must not persist a volatile Nord Pool entry id")
     if 'key="discharge_power_mode"' not in read(INTEGRATION / "select.py"):
         raise AssertionError("discharge power mode select is missing")
     number_source = read(INTEGRATION / "number.py")

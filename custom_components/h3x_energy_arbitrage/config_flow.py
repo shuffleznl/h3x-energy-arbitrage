@@ -355,7 +355,7 @@ def _autodetected_defaults(hass: HomeAssistant) -> dict[str, Any]:
         return {}
 
     entry = entries[0]
-    defaults: dict[str, Any] = {CONF_NORDPOOL_CONFIG_ENTRY: entry.entry_id}
+    defaults: dict[str, Any] = {}
     areas = entry.data.get(NORDPOOL_CONF_AREAS)
     if isinstance(areas, list) and areas:
         defaults[CONF_AREA] = str(areas[0]).upper()
