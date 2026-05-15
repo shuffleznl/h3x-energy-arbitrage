@@ -58,7 +58,11 @@ After the decision sensors look correct, enable automatic control from the integ
 - `sensor.h3x_energy_arbitrage_battery_system_capacity`
 - `sensor.h3x_energy_arbitrage_battery_usable_capacity`
 - `sensor.h3x_energy_arbitrage_target_c_rate`
+- `sensor.h3x_energy_arbitrage_next_charge_slot`
+- `sensor.h3x_energy_arbitrage_next_discharge_slot`
+- `sensor.h3x_energy_arbitrage_periodic_full_charge_slot`
 - `sensor.h3x_energy_arbitrage_current_price`
+- `sensor.h3x_energy_arbitrage_price_trend`
 - `sensor.h3x_energy_arbitrage_decision_reason`
 - `sensor.h3x_energy_arbitrage_first_slot_value`
 - `sensor.h3x_energy_arbitrage_estimated_savings`
@@ -69,7 +73,9 @@ After the decision sensors look correct, enable automatic control from the integ
 - `sensor.h3x_energy_arbitrage_price_resolution`
 - `sensor.h3x_energy_arbitrage_price_slots_available`
 
-The `price_plan` sensor is a unitless diagnostic carrier for Lovelace charting. It carries `price_slots` and `dispatch_plan` attributes, and those large chart arrays are excluded from recorder history to keep the Home Assistant database small. Currency values use the resolved Nord Pool ISO 4217 currency code, for example `EUR` or `DKK`.
+The `next_charge_slot`, `next_discharge_slot`, and `periodic_full_charge_slot` sensors expose the first planned slot as the state and keep `start`, `end`, `energy_kwh`, `target_power_w`, `price`, and `value` in attributes.
+
+The `price_plan` sensor is a unitless diagnostic carrier for Lovelace charting. It carries `price_slots`, `price_trend`, and `dispatch_plan` attributes, and those large chart arrays are excluded from recorder history to keep the Home Assistant database small. `price_trend` is a rolling trendline over the price slots with `trend_price`, `delta_next`, and `trend_direction` values. Currency values use the resolved Nord Pool ISO 4217 currency code, for example `EUR` or `DKK`.
 
 ## Runtime Controls
 

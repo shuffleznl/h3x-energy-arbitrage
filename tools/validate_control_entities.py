@@ -125,8 +125,8 @@ def main() -> None:
             raise AssertionError(
                 f"usable capacity for {modules} modules differs by {deviation:.2f}%"
             )
-    if '"version": "0.6.3"' not in read(INTEGRATION / "manifest.json"):
-        raise AssertionError("manifest version must be 0.6.3")
+    if '"version": "0.6.4"' not in read(INTEGRATION / "manifest.json"):
+        raise AssertionError("manifest version must be 0.6.4")
     if "configured and configured.lower() != \"auto\"" not in coordinator_source:
         raise AssertionError("stale Nord Pool config entries must fall back to auto")
     if "\"get_prices_for_date\"" not in coordinator_source:
@@ -149,9 +149,21 @@ def main() -> None:
         'key="battery_system_capacity"',
         'key="battery_usable_capacity"',
         'key="target_c_rate"',
+        'key="next_charge_slot"',
+        'key="next_discharge_slot"',
+        'key="periodic_full_charge_slot"',
+        'key="price_trend"',
     ):
         if token not in sensor_source:
             raise AssertionError(f"{token} sensor is missing")
+    for token in (
+        "_finalize_decision_diagnostics",
+        "_attach_plan_summaries",
+        "_price_trend_slots",
+        "_price_trend_attributes",
+    ):
+        if token not in coordinator_source:
+            raise AssertionError(f"{token} coordinator helper is missing")
 
 
 if __name__ == "__main__":

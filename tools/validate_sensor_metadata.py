@@ -99,9 +99,18 @@ def main() -> None:
         if isinstance(node, ast.FunctionDef) and node.name == "_decision_attributes"
     )
     decision_source = ast.unparse(decision)
-    for token in ("price_slots", "today_slots", "tomorrow_slots", "dispatch_plan"):
+    for token in (
+        "price_slots",
+        "today_slots",
+        "tomorrow_slots",
+        "dispatch_plan",
+    ):
         if token in decision_source:
             raise AssertionError(f"decision sensor must not expose {token}")
+
+    for token in ("price_trend", "planned_charge_slots", "planned_discharge_slots"):
+        if token not in source:
+            raise AssertionError(f"{token} must be excluded from recorder attributes")
 
 
 if __name__ == "__main__":

@@ -154,8 +154,20 @@
       "target_c_rate": {
         "name": "Target C-rate"
       },
+      "next_charge_slot": {
+        "name": "Next charge slot"
+      },
+      "next_discharge_slot": {
+        "name": "Next discharge slot"
+      },
+      "periodic_full_charge_slot": {
+        "name": "Periodic full-charge slot"
+      },
       "current_price": {
         "name": "Current price"
+      },
+      "price_trend": {
+        "name": "Price trend"
       },
       "reason": {
         "name": "Decision reason"

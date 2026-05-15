@@ -274,7 +274,7 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             LOGGER.exception("Failed to compute arbitrage decision")
             decision = Decision(action="failsafe", reason=str(err))
 
-        self._ensure_capacity_attributes(decision)
+        self._finalize_decision_diagnostics(decision)
         self._update_battery_capacity_issue(decision)
 
         if bool(self._option(CONF_CONTROL_ENABLED)):
@@ -587,6 +587,7 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 ),
                 "nordpool_resolution_minutes": int(self._option(CONF_RESOLUTION)),
                 "price_fetch_errors": list(self._last_price_fetch_errors),
+                **self._price_trend_attributes(future_slots),
                 "price_slots": [
                     self._serialize_price_slot(slot) for slot in future_slots
                 ],
@@ -645,12 +646,14 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             decision.target_power_percent = self._power_to_percent(
                 decision.action, limited_power
             )
-            decision.attributes["target_c_rate"] = round(
-                limited_power / max(usable_capacity_kwh * 1000, 1.0),
-                3,
-            )
 
         return decision
+
+    def _finalize_decision_diagnostics(self, decision: Decision) -> None:
+        """Attach always-on diagnostics used by UI sensors and dashboards."""
+        self._ensure_capacity_attributes(decision)
+        self._set_target_c_rate_attribute(decision)
+        self._attach_plan_summaries(decision)
 
     def _ensure_capacity_attributes(self, decision: Decision) -> None:
         """Keep capacity diagnostics available even when price fetching fails."""
@@ -667,6 +670,117 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         decision.attributes.update(self._battery_capacity_attributes(battery_config))
         decision.attributes["price_fetch_errors"] = list(self._last_price_fetch_errors)
+
+    def _set_target_c_rate_attribute(self, decision: Decision) -> None:
+        """Derive target C-rate from final target power and usable capacity."""
+        usable_capacity = decision.attributes.get("battery_usable_capacity_kwh")
+        try:
+            usable_capacity_kwh = float(usable_capacity)
+        except (TypeError, ValueError):
+            decision.attributes["target_c_rate"] = None
+            return
+
+        if usable_capacity_kwh <= 0:
+            decision.attributes["target_c_rate"] = None
+            return
+        decision.attributes["target_c_rate"] = round(
+            abs(decision.target_power_w) / (usable_capacity_kwh * 1000),
+            3,
+        )
+
+    def _attach_plan_summaries(self, decision: Decision) -> None:
+        """Expose concise plan summaries without requiring large attribute parsing."""
+        plan = decision.attributes.get("dispatch_plan")
+        if not isinstance(plan, list):
+            plan = []
+
+        charge_slots = [
+            self._compact_plan_slot(row)
+            for row in plan
+            if self._plan_slot_action(row) == "charge"
+        ]
+        discharge_slots = [
+            self._compact_plan_slot(row)
+            for row in plan
+            if self._plan_slot_action(row) == "discharge"
+        ]
+        charge_slots = [slot for slot in charge_slots if slot is not None]
+        discharge_slots = [slot for slot in discharge_slots if slot is not None]
+
+        decision.attributes["planned_charge_slots"] = charge_slots[:12]
+        decision.attributes["planned_discharge_slots"] = discharge_slots[:12]
+        decision.attributes["next_charge_slot"] = (
+            charge_slots[0] if charge_slots else {"state": "none"}
+        )
+        decision.attributes["next_discharge_slot"] = (
+            discharge_slots[0] if discharge_slots else {"state": "none"}
+        )
+
+        due = decision.attributes.get("periodic_full_charge_due")
+        enabled_attr = decision.attributes.get("periodic_full_charge_enabled")
+        enabled = (
+            bool(enabled_attr)
+            if enabled_attr is not None
+            else bool(self._option(CONF_PERIODIC_FULL_CHARGE_ENABLED))
+        )
+        if due is True and charge_slots:
+            full_charge_slot = dict(charge_slots[0])
+            full_charge_slot["state"] = "planned"
+        elif due is True:
+            full_charge_slot = {
+                "state": "waiting_for_charge_slot",
+                "target_soc": decision.attributes.get(
+                    "periodic_full_charge_target_soc",
+                    self._option(CONF_PERIODIC_FULL_CHARGE_TARGET_SOC),
+                ),
+            }
+        elif due is False:
+            full_charge_slot = {
+                "state": "not_due" if enabled else "disabled",
+                "next_due_at": decision.attributes.get(
+                    "periodic_full_charge_next_due_at"
+                ),
+                "target_soc": decision.attributes.get(
+                    "periodic_full_charge_target_soc",
+                    self._option(CONF_PERIODIC_FULL_CHARGE_TARGET_SOC),
+                ),
+            }
+        else:
+            full_charge_slot = {
+                "state": "waiting_for_soc",
+                "target_soc": self._option(CONF_PERIODIC_FULL_CHARGE_TARGET_SOC),
+            }
+        decision.attributes["periodic_full_charge_slot"] = full_charge_slot
+
+    @staticmethod
+    def _plan_slot_action(row: Any) -> str | None:
+        """Return the action for a serialized plan slot."""
+        if not isinstance(row, dict):
+            return None
+        try:
+            energy = float(row.get("energy_kwh") or 0.0)
+        except (TypeError, ValueError):
+            energy = 0.0
+        action = str(row.get("action") or "")
+        if action in {"charge", "discharge"} and energy > 0:
+            return action
+        return None
+
+    @staticmethod
+    def _compact_plan_slot(row: Any) -> dict[str, Any] | None:
+        """Return a small, UI-friendly plan-slot dictionary."""
+        if not isinstance(row, dict):
+            return None
+        return {
+            "state": "planned",
+            "start": row.get("start"),
+            "end": row.get("end"),
+            "action": row.get("action"),
+            "energy_kwh": row.get("energy_kwh"),
+            "target_power_w": row.get("target_power_w"),
+            "value": row.get("value"),
+            "price": row.get("price"),
+        }
 
     def _battery_capacity_attributes(
         self,
@@ -1447,6 +1561,48 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "end": dt_util.as_local(slot.end).isoformat(),
             "price": round(slot.price, 5),
         }
+
+    def _price_trend_attributes(self, slots: list[PriceSlot]) -> dict[str, Any]:
+        """Return current and per-slot price trend diagnostics."""
+        trend_slots = self._price_trend_slots(slots)
+        current = trend_slots[0] if trend_slots else {}
+        return {
+            "price_trend_direction": current.get("trend_direction", "unknown"),
+            "price_trend_delta_next": current.get("delta_next"),
+            "price_trend_price": current.get("trend_price"),
+            "price_trend": trend_slots,
+        }
+
+    def _price_trend_slots(self, slots: list[PriceSlot]) -> list[dict[str, Any]]:
+        """Build a rolling trend line over future price slots."""
+        trend_slots: list[dict[str, Any]] = []
+        for index, slot in enumerate(slots):
+            window = slots[max(index - 2, 0) : min(index + 3, len(slots))]
+            trend_price = (
+                sum(price_slot.price for price_slot in window) / len(window)
+                if window
+                else slot.price
+            )
+            next_price = slots[index + 1].price if index + 1 < len(slots) else slot.price
+            delta_next = next_price - slot.price
+            trend_slots.append(
+                {
+                    **self._serialize_price_slot(slot),
+                    "trend_price": round(trend_price, 5),
+                    "delta_next": round(delta_next, 5),
+                    "trend_direction": self._price_trend_direction(delta_next),
+                }
+            )
+        return trend_slots
+
+    @staticmethod
+    def _price_trend_direction(delta: float) -> str:
+        """Return a stable direction label for a price delta."""
+        if delta > 0.0005:
+            return "up"
+        if delta < -0.0005:
+            return "down"
+        return "flat"
 
     def _power_state_w(self, entity_id: str | None) -> float | None:
         """Read a Home Assistant power entity and normalize W/kW/MW to watts."""

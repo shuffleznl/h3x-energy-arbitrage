@@ -39,6 +39,9 @@ UNRECORDED_PLAN_ATTRIBUTES = frozenset(
     {
         "dispatch_plan",
         "price_slots",
+        "price_trend",
+        "planned_charge_slots",
+        "planned_discharge_slots",
         "today_slots",
         "tomorrow_slots",
     }
@@ -97,6 +100,12 @@ def _decision_attributes(data: dict[str, Any]) -> dict[str, Any]:
             "grid_import_average_power_entity",
             "nordpool_resolution_minutes",
             "price_fetch_errors",
+            "price_trend_direction",
+            "price_trend_delta_next",
+            "price_trend_price",
+            "next_charge_slot",
+            "next_discharge_slot",
+            "periodic_full_charge_slot",
             "normal_max_soc",
             "periodic_full_charge_enabled",
             "periodic_full_charge_due",
@@ -146,8 +155,52 @@ def _price_plan_attributes(data: dict[str, Any]) -> dict[str, Any]:
         "currency": attributes.get("currency"),
         "resolution_minutes": data.get("resolution_minutes"),
         "updated_at": data.get("updated_at"),
+        "price_trend_direction": attributes.get("price_trend_direction"),
+        "price_trend_delta_next": attributes.get("price_trend_delta_next"),
         "price_slots": attributes.get("price_slots", []),
+        "price_trend": attributes.get("price_trend", []),
         "dispatch_plan": attributes.get("dispatch_plan", []),
+    }
+
+
+def _attribute(data: dict[str, Any], key: str) -> Any:
+    """Return an attribute from the coordinator data payload."""
+    return (data.get("attributes") or {}).get(key)
+
+
+def _slot_state(data: dict[str, Any], key: str) -> str:
+    """Return a stable sensor state for a planned slot attribute."""
+    slot = _attribute(data, key)
+    if isinstance(slot, dict):
+        start = slot.get("start")
+        if start:
+            return str(start)
+        return str(slot.get("state") or "none")
+    return "none"
+
+
+def _slot_attributes(data: dict[str, Any], key: str) -> dict[str, Any]:
+    """Return all details for a planned slot sensor."""
+    slot = _attribute(data, key)
+    return dict(slot) if isinstance(slot, dict) else {"state": "none"}
+
+
+def _periodic_full_charge_slot_state(data: dict[str, Any]) -> str:
+    """Return a stable state for the periodic full-charge slot."""
+    slot = _attribute(data, "periodic_full_charge_slot")
+    if isinstance(slot, dict):
+        start = slot.get("start")
+        if start:
+            return str(start)
+        return str(slot.get("state") or "unknown")
+    return "unknown"
+
+
+def _price_trend_attributes(data: dict[str, Any]) -> dict[str, Any]:
+    """Return concise current trend diagnostics."""
+    return {
+        "price_trend_delta_next": _attribute(data, "price_trend_delta_next"),
+        "price_trend_price": _attribute(data, "price_trend_price"),
     }
 
 
@@ -208,10 +261,42 @@ SENSORS: tuple[H3XArbitrageSensorDescription, ...] = (
         value_fn=lambda data: (data.get("attributes") or {}).get("target_c_rate"),
     ),
     H3XArbitrageSensorDescription(
+        key="next_charge_slot",
+        translation_key="next_charge_slot",
+        name="Next charge slot",
+        icon="mdi:battery-clock",
+        value_fn=lambda data: _slot_state(data, "next_charge_slot"),
+        extra_fn=lambda data: _slot_attributes(data, "next_charge_slot"),
+    ),
+    H3XArbitrageSensorDescription(
+        key="next_discharge_slot",
+        translation_key="next_discharge_slot",
+        name="Next discharge slot",
+        icon="mdi:battery-clock-outline",
+        value_fn=lambda data: _slot_state(data, "next_discharge_slot"),
+        extra_fn=lambda data: _slot_attributes(data, "next_discharge_slot"),
+    ),
+    H3XArbitrageSensorDescription(
+        key="periodic_full_charge_slot",
+        translation_key="periodic_full_charge_slot",
+        name="Periodic full-charge slot",
+        icon="mdi:battery-charging-100",
+        value_fn=_periodic_full_charge_slot_state,
+        extra_fn=lambda data: _slot_attributes(data, "periodic_full_charge_slot"),
+    ),
+    H3XArbitrageSensorDescription(
         key="current_price",
         translation_key="current_price",
         name="Current price",
         value_fn=lambda data: data.get("current_price"),
+    ),
+    H3XArbitrageSensorDescription(
+        key="price_trend",
+        translation_key="price_trend",
+        name="Price trend",
+        icon="mdi:trending-up",
+        value_fn=lambda data: _attribute(data, "price_trend_direction"),
+        extra_fn=_price_trend_attributes,
     ),
     H3XArbitrageSensorDescription(
         key="reason",
