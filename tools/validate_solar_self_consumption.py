@@ -24,6 +24,7 @@ def main() -> None:
     sensor_source = read(INTEGRATION / "sensor.py")
     number_source = read(INTEGRATION / "number.py")
     select_source = read(INTEGRATION / "select.py")
+    readme_source = read(ROOT / "README.md")
 
     for path in INTEGRATION.glob("*.py"):
         ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -81,6 +82,15 @@ def main() -> None:
             raise AssertionError(f"{token} missing from number controls")
     if "pv_orientation" not in select_source:
         raise AssertionError("pv_orientation select is missing")
+
+    for token in (
+        "disabled_panel_config",
+        "number.pylontech_h3x_energy_arbitrage_pv_panel_count",
+        "number.pylontech_h3x_energy_arbitrage_pv_panel_wp_rating",
+        "custom_components/pylontech_h3x_bridge/dashboards/pylontech-h3x-energy.yaml",
+    ):
+        if token not in readme_source:
+            raise AssertionError(f"{token} missing from README recovery guidance")
 
 
 if __name__ == "__main__":

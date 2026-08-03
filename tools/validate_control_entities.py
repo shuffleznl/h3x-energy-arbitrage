@@ -137,8 +137,8 @@ def main() -> None:
             raise AssertionError(
                 f"usable capacity for {modules} modules differs by {deviation:.2f}%"
             )
-    if '"version": "0.7.0"' not in read(INTEGRATION / "manifest.json"):
-        raise AssertionError("manifest version must be 0.7.0")
+    if '"version": "0.7.1"' not in read(INTEGRATION / "manifest.json"):
+        raise AssertionError("manifest version must be 0.7.1")
     if "configured and configured.lower() != \"auto\"" not in coordinator_source:
         raise AssertionError("stale Nord Pool config entries must fall back to auto")
     if "\"get_prices_for_date\"" not in coordinator_source:

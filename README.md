@@ -28,6 +28,12 @@ The Nord Pool config entry is resolved automatically at runtime. If Home Assista
 4. Go to **Settings > Devices & services > Add integration**.
 5. Add **Pylontech H3X Energy Arbitrage** and review the detected Nord Pool area and Pylontech H3X Bridge entity IDs.
 
+## Dashboard Updates
+
+Pylontech H3X Bridge `0.3.8` and newer packages the matching dashboard at `config/custom_components/pylontech_h3x_bridge/dashboards/pylontech-h3x-energy.yaml`. Point a YAML dashboard at that file once; subsequent bridge updates installed by HACS will then refresh the dashboard source as well.
+
+The dashboard only displays entities that are available. If the forecast diagnostics report `solar_forecast_source: disabled_panel_config`, set both `number.pylontech_h3x_energy_arbitrage_pv_panel_count` and `number.pylontech_h3x_energy_arbitrage_pv_panel_wp_rating` above zero. Then select the installation direction with `select.pylontech_h3x_energy_arbitrage_pv_orientation` and verify the inverter cap in `number.pylontech_h3x_energy_arbitrage_pv_inverter_limit`.
+
 ## Safe First Run
 
 Set **Enable automatic control** to off for the first run. The integration will still compute and expose decisions, prices, planned charge/discharge energy, and estimated value, but it will not write to the H3X entities.
