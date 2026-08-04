@@ -48,8 +48,8 @@ After the decision sensors look correct, enable automatic control from the integ
 | Charge/discharge power | `number.pylontech_h3x_bridge_charge_discharge_power_ref` |
 | Battery SOC | `sensor.pylontech_h3x_bridge_battery_soc` |
 | House load | `sensor.pylontech_h3x_bridge_load_power` |
-| Real-time grid import | `sensor.dsmr_reading_electricity_currently_delivered` |
-| Averaged grid import | `sensor.connect_energy_meter_electricity_average` |
+| Real-time grid import/export | Auto-detected Shelly Pro 3EM `total_active_power`, or the configured signed Shelly grid sensor. |
+| Averaged grid import | Optional user-created average of the Shelly grid power; current Shelly import is used when omitted. |
 | Battery module count | `sensor.pylontech_h3x_bridge_battery_module_count` |
 | Battery system capacity | `sensor.pylontech_h3x_bridge_battery_system_capacity` |
 | Battery usable capacity | `sensor.pylontech_h3x_bridge_battery_usable_capacity` |
@@ -63,8 +63,9 @@ Shelly and SMA entity IDs are generated from the device names in Home Assistant,
 
 | Purpose | Recommended input |
 | --- | --- |
-| Shelly Pro 3EM total home power | Set **Shelly Pro 3EM total home power sensor entity** to the Shelly total active power sensor when that sensor represents household consumption. |
-| Shelly Pro 3EM per-phase power | If no total load sensor is available, set phase A/B/C power sensors; the controller sums available phases. |
+| Shelly Pro 3EM grid power | Set **Shelly Pro 3EM grid total active power sensor entity (signed)** to the meter at the grid connection. Positive values are import and negative values are export. Clearly named Shelly `total_active_power` entities are auto-detected. |
+| Shelly Pro 3EM household load | Set the optional household-load total only when its CT placement measures household consumption rather than net grid flow. |
+| Shelly Pro 3EM per-phase household load | If no total household-load sensor is available, set phase A/B/C active-power sensors. Grid-limit fallback requires all three phases. |
 | SMA Sunny Boy PV power | Set **SMA Sunny Boy current PV power sensor entity** to the SMA `pv_power` sensor. |
 | PV orientation | Select one of `N`, `NE`, `E`, `SE`, `S`, `SW`, `W`, or `NW`. |
 | PV size | Set panel count and Wp rating. A zero panel count disables the internal PV forecast. |
@@ -82,6 +83,8 @@ The Home Assistant [SMA Solar integration](https://www.home-assistant.io/integra
 - `sensor.h3x_energy_arbitrage_target_c_rate`
 - `sensor.h3x_energy_arbitrage_home_load_power`
 - `sensor.h3x_energy_arbitrage_solar_power`
+- `sensor.h3x_energy_arbitrage_grid_net_power` (positive import, negative export)
+- `sensor.h3x_energy_arbitrage_grid_import_power` (non-negative import guard value)
 - `sensor.h3x_energy_arbitrage_forecast_load_power`
 - `sensor.h3x_energy_arbitrage_forecast_solar_power`
 - `sensor.h3x_energy_arbitrage_next_charge_slot`
@@ -151,7 +154,7 @@ The optimizer supports:
 
 Default power settings are `11 kW` continuous and `13.8 kW` peak, with peak power only used when the price spread clears the configured extra margin. C-rate caps are applied after those economic limits: for a 6-module pack with `29.17 kWh` usable capacity, `0.5C` is `14.6 kW`, so the inverter peak still limits the final setpoint. The default grid import limit is `17.5 kW`; set it to `0` in options to disable the import guard.
 
-Charging is not intentionally spread across many hours. The optimizer still charges at the cheapest economic speed, capped by inverter power, the configured charge C-rate, BMS temperature, SOC limits, and the grid import limit. When DSMR or averaged import sensors are configured, charging headroom is based on the most conservative available reading and accounts for any already-requested battery charge power to avoid self-throttling during an active charge.
+Charging is not intentionally spread across many hours. The optimizer still charges at the cheapest economic speed, capped by inverter power, the configured charge C-rate, BMS temperature, SOC limits, and the grid import limit. Shelly Pro 3EM total active power is signed; positive values constrain import while negative export is clamped to zero only for the import guard. If an optional averaged Shelly import sensor is configured, charging headroom uses the most conservative reading and accounts for any already-requested battery charge power to avoid self-throttling during an active charge.
 
 PV surplus charging is treated differently from forced grid charging. If the selected current slot is expected to charge only from solar surplus, the controller exposes that planned charge energy but leaves the command at idle so the H3X can remain in self-consumption behavior instead of forcing a grid-charge command. If the planned charge needs grid energy, it uses the normal H3X charge command and still respects the `17.5 kW` default import limit.
 

@@ -150,6 +150,7 @@ class Decision:
     solar_power_w: float | None = None
     forecast_load_power_w: float | None = None
     forecast_solar_power_w: float | None = None
+    grid_net_power_w: float | None = None
     grid_import_power_w: float | None = None
     grid_import_average_power_w: float | None = None
     grid_charge_headroom_w: float | None = None
@@ -200,6 +201,8 @@ class Decision:
             data["forecast_load_power_w"] = round(self.forecast_load_power_w, 1)
         if self.forecast_solar_power_w is not None:
             data["forecast_solar_power_w"] = round(self.forecast_solar_power_w, 1)
+        if self.grid_net_power_w is not None:
+            data["grid_net_power_w"] = round(self.grid_net_power_w, 1)
         if self.grid_import_power_w is not None:
             data["grid_import_power_w"] = round(self.grid_import_power_w, 1)
         if self.grid_import_average_power_w is not None:
@@ -626,11 +629,24 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         decision.forecast_solar_power_w = (
             solar_forecast_w[0] if solar_forecast_w else None
         )
-        decision.grid_import_power_w = self._power_state_w(
-            str(self._option(CONF_GRID_IMPORT_POWER_ENTITY))
+        (
+            grid_power_w,
+            grid_net_power_w,
+            grid_entity_ids,
+            grid_source,
+        ) = self._grid_import_measurement()
+        decision.grid_import_power_w = grid_power_w
+        decision.grid_net_power_w = grid_net_power_w
+        configured_average_entity = str(
+            self._option(CONF_GRID_IMPORT_AVERAGE_POWER_ENTITY)
+        ).strip()
+        configured_average = self._positive_power_state_w(
+            configured_average_entity
         )
-        decision.grid_import_average_power_w = self._power_state_w(
-            str(self._option(CONF_GRID_IMPORT_AVERAGE_POWER_ENTITY))
+        decision.grid_import_average_power_w = (
+            configured_average
+            if configured_average is not None
+            else grid_power_w
         )
         decision.updated_at = now.isoformat()
         decision.attributes.update(
@@ -648,8 +664,9 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "grid_import_limit_w": float(self._option(CONF_GRID_IMPORT_LIMIT_W)),
                 "grid_export_limit_w": float(self._option(CONF_GRID_EXPORT_LIMIT_W)),
                 "grid_import_power_entity": str(
-                    self._option(CONF_GRID_IMPORT_POWER_ENTITY)
+                    ",".join(grid_entity_ids)
                 ),
+                "grid_import_measurement_source": grid_source,
                 "grid_import_average_power_entity": str(
                     self._option(CONF_GRID_IMPORT_AVERAGE_POWER_ENTITY)
                 ),
@@ -1183,6 +1200,86 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if value is None:
             return None
         return max(value, 0.0)
+
+    def _grid_import_measurement(
+        self,
+    ) -> tuple[float | None, float | None, tuple[str, ...], str]:
+        """Resolve signed Shelly grid power and return import-only watts."""
+        configured_entity = str(
+            self._option(CONF_GRID_IMPORT_POWER_ENTITY)
+        ).strip()
+        configured_power = self._power_state_w(configured_entity)
+        if configured_power is not None:
+            return (
+                max(configured_power, 0.0),
+                configured_power,
+                (configured_entity,),
+                "configured_shelly_grid_total",
+            )
+
+        total_entity = str(self._option(CONF_SHELLY_TOTAL_POWER_ENTITY)).strip()
+        total_power = self._power_state_w(total_entity)
+        if total_power is not None:
+            return (
+                max(total_power, 0.0),
+                total_power,
+                (total_entity,),
+                "shelly_total_fallback",
+            )
+
+        autodetected_entity = self._autodetected_shelly_grid_entity()
+        autodetected_power = self._power_state_w(autodetected_entity)
+        if autodetected_power is not None:
+            return (
+                max(autodetected_power, 0.0),
+                autodetected_power,
+                (autodetected_entity,),
+                "shelly_total_autodetected",
+            )
+
+        phase_entities = tuple(
+            str(self._option(key)).strip()
+            for key in (
+                CONF_SHELLY_PHASE_A_POWER_ENTITY,
+                CONF_SHELLY_PHASE_B_POWER_ENTITY,
+                CONF_SHELLY_PHASE_C_POWER_ENTITY,
+            )
+        )
+        if all(phase_entities):
+            phase_values = [self._power_state_w(entity) for entity in phase_entities]
+            if all(value is not None for value in phase_values):
+                net_power = sum(value or 0.0 for value in phase_values)
+                return (
+                    max(net_power, 0.0),
+                    net_power,
+                    phase_entities,
+                    "shelly_three_phase_sum",
+                )
+
+        unavailable = tuple(
+            entity
+            for entity in (configured_entity, total_entity, *phase_entities)
+            if entity
+        )
+        return None, None, unavailable, "shelly_meter_unavailable"
+
+    def _autodetected_shelly_grid_entity(self) -> str:
+        """Find a clearly named Shelly total active-power sensor."""
+        for state in self.hass.states.async_all("sensor"):
+            identity = " ".join(
+                (
+                    state.entity_id,
+                    str((state.attributes or {}).get("friendly_name") or ""),
+                )
+            ).lower()
+            if (
+                "shelly" in identity
+                and "total" in identity
+                and "active" in identity
+                and "power" in identity
+            ):
+                return state.entity_id
+        return ""
 
     @staticmethod
     def _load_forecast_for_slots(

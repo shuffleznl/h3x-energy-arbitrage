@@ -391,19 +391,33 @@ def _schema(
 
 
 def _autodetected_defaults(hass: HomeAssistant) -> dict[str, Any]:
-    """Return defaults from the first Nord Pool config entry when available."""
-    entries = hass.config_entries.async_entries(NORDPOOL_DOMAIN)
-    if not entries:
-        return {}
-
-    entry = entries[0]
+    """Return defaults from Nord Pool and a Shelly Pro 3EM when available."""
     defaults: dict[str, Any] = {}
-    areas = entry.data.get(NORDPOOL_CONF_AREAS)
-    if isinstance(areas, list) and areas:
-        defaults[CONF_AREA] = str(areas[0]).upper()
-    currency = entry.data.get(NORDPOOL_CONF_CURRENCY)
-    if currency:
-        defaults[CONF_CURRENCY] = str(currency).upper()
+    entries = hass.config_entries.async_entries(NORDPOOL_DOMAIN)
+    if entries:
+        entry = entries[0]
+        areas = entry.data.get(NORDPOOL_CONF_AREAS)
+        if isinstance(areas, list) and areas:
+            defaults[CONF_AREA] = str(areas[0]).upper()
+        currency = entry.data.get(NORDPOOL_CONF_CURRENCY)
+        if currency:
+            defaults[CONF_CURRENCY] = str(currency).upper()
+
+    for state in hass.states.async_all("sensor"):
+        identity = " ".join(
+            (
+                state.entity_id,
+                str((state.attributes or {}).get("friendly_name") or ""),
+            )
+        ).lower()
+        if (
+            "shelly" in identity
+            and "total" in identity
+            and "active" in identity
+            and "power" in identity
+        ):
+            defaults[CONF_GRID_IMPORT_POWER_ENTITY] = state.entity_id
+            break
     return defaults
 
 

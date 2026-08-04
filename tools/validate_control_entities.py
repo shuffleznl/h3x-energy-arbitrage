@@ -38,6 +38,24 @@ def main() -> None:
     coordinator_source = read(INTEGRATION / "coordinator.py")
     sensor_source = read(INTEGRATION / "sensor.py")
 
+    repository_text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in ROOT.rglob("*")
+        if path.is_file()
+        and ".git" not in path.parts
+        and "__pycache__" not in path.parts
+        and path.suffix.lower() in {".py", ".json", ".md", ".yaml", ".yml"}
+    ).lower()
+    for retired_reference in (
+        "ds" + "mr",
+        "currently" + "_delivered",
+        "connect" + "_energy_meter",
+    ):
+        if retired_reference in repository_text:
+            raise AssertionError(
+                f"retired meter reference remains: {retired_reference}"
+            )
+
     for platform in ("Platform.NUMBER", "Platform.SELECT", "Platform.SWITCH"):
         if platform not in const_source:
             raise AssertionError(f"{platform} missing from PLATFORMS")
@@ -71,6 +89,7 @@ def main() -> None:
         "discharge_spread_price_tolerance",
         "discharge_spread_max_hours",
         "grid_import_power_entity",
+        "grid_import_measurement_source",
         "grid_import_average_power_entity",
         "shelly_total_power_entity",
         "shelly_phase_a_power_entity",
@@ -137,8 +156,14 @@ def main() -> None:
             raise AssertionError(
                 f"usable capacity for {modules} modules differs by {deviation:.2f}%"
             )
-    if '"version": "0.7.1"' not in read(INTEGRATION / "manifest.json"):
-        raise AssertionError("manifest version must be 0.7.1")
+    if '"version": "0.7.2"' not in read(INTEGRATION / "manifest.json"):
+        raise AssertionError("manifest version must be 0.7.2")
+    if 'DEFAULT_GRID_IMPORT_POWER_ENTITY = ""' not in const_source:
+        raise AssertionError("grid monitoring must not default to a retired meter")
+    if 'DEFAULT_GRID_IMPORT_AVERAGE_POWER_ENTITY = ""' not in const_source:
+        raise AssertionError("averaged grid monitoring must not use a retired meter")
+    if "_grid_import_measurement" not in coordinator_source:
+        raise AssertionError("Shelly grid source resolver is missing")
     if "configured and configured.lower() != \"auto\"" not in coordinator_source:
         raise AssertionError("stale Nord Pool config entries must fall back to auto")
     if "\"get_prices_for_date\"" not in coordinator_source:
@@ -172,6 +197,8 @@ def main() -> None:
         'key="price_trend"',
         'key="home_load_power"',
         'key="solar_power"',
+        'key="grid_net_power"',
+        'key="grid_import_power"',
         'key="forecast_load_power"',
         'key="forecast_solar_power"',
         'key="planned_grid_charge_energy"',
