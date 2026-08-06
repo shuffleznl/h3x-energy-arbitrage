@@ -13,7 +13,7 @@ This repository contains one HACS integration:
 - Home Assistant `2024.12.0` or newer.
 - HACS.
 - Nord Pool integration configured in Home Assistant.
-- Pylontech H3X Bridge installed from `https://github.com/shuffleznl/pylontech-fh3x-bridge`.
+- Pylontech H3X Bridge installed from `https://github.com/shuffleznl/h3x-bridge`.
 - Optional but recommended for self-consumption optimization: Shelly Pro 3EM power sensors and an SMA Sunny Boy PV power sensor.
 
 The controller calls the Nord Pool `get_price_indices_for_date` service, falls back to `get_prices_for_date` when custom-resolution indices are empty, reads the Pylontech H3X Bridge sensors, and writes the Pylontech H3X Bridge EMS mode and charge/discharge power entities when automatic control is enabled.
@@ -30,7 +30,7 @@ The Nord Pool config entry is resolved automatically at runtime. If Home Assista
 
 ## Dashboard Updates
 
-Pylontech H3X Bridge `0.3.8` and newer packages the matching dashboard at `config/custom_components/pylontech_h3x_bridge/dashboards/pylontech-h3x-energy.yaml`. Point a YAML dashboard at that file once; subsequent bridge updates installed by HACS will then refresh the dashboard source as well.
+Energy Arbitrage `0.7.3` and newer packages the matching dashboard at `config/custom_components/h3x_energy_arbitrage/dashboards/pylontech-h3x-energy.yaml`. Point a YAML dashboard at that file once; subsequent Energy Arbitrage updates installed by HACS will refresh the dashboard source. See [dashboards/README.md](dashboards/README.md) for setup details.
 
 The dashboard only displays entities that are available. If the forecast diagnostics report `solar_forecast_source: disabled_panel_config`, set both `number.pylontech_h3x_energy_arbitrage_pv_panel_count` and `number.pylontech_h3x_energy_arbitrage_pv_panel_wp_rating` above zero. Then select the installation direction with `select.pylontech_h3x_energy_arbitrage_pv_orientation` and verify the inverter cap in `number.pylontech_h3x_energy_arbitrage_pv_inverter_limit`.
 
@@ -205,4 +205,5 @@ uv --cache-dir .uv-cache run --python 3.13 python tools/validate_sensor_metadata
 uv --cache-dir .uv-cache run --python 3.13 python tools/validate_periodic_full_charge.py
 uv --cache-dir .uv-cache run --python 3.13 python tools/validate_control_entities.py
 uv --cache-dir .uv-cache run --python 3.13 python tools/validate_solar_self_consumption.py
+uv --cache-dir .uv-cache run --python 3.13 python tools/validate_energy_dashboard.py
 ```

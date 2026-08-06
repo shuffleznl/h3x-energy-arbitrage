@@ -6,7 +6,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 INTEGRATION = ROOT / "custom_components" / "h3x_energy_arbitrage"
 
@@ -87,7 +86,7 @@ def main() -> None:
         "disabled_panel_config",
         "number.pylontech_h3x_energy_arbitrage_pv_panel_count",
         "number.pylontech_h3x_energy_arbitrage_pv_panel_wp_rating",
-        "custom_components/pylontech_h3x_bridge/dashboards/pylontech-h3x-energy.yaml",
+        "custom_components/h3x_energy_arbitrage/dashboards/pylontech-h3x-energy.yaml",
     ):
         if token not in readme_source:
             raise AssertionError(f"{token} missing from README recovery guidance")
