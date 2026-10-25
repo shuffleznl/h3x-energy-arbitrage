@@ -1,5 +1,9 @@
 # Pylontech H3X Energy Arbitrage
 
+## Release 0.7.4
+
+Compatibility with [H3X Bridge 0.4.0](https://github.com/shuffleznl/h3x-bridge): manual force-charge and KNMI weather-reserve overrides take priority over optimizer commands. The optimizer pauses conflicting writes until the bridge returns to automatic control. Configure grid/KNMI/siren sources on the bridge; its new switches, charge-rate and warning-threshold selectors are included at the top of the packaged dashboard. Refresh a storage-mode dashboard by importing the updated packaged YAML after the HACS update.
+
 Home Assistant custom integration for Nord Pool driven charge/discharge decisions for a Pylontech Force H3X system.
 
 This repository contains one HACS integration:
@@ -10,7 +14,7 @@ This repository contains one HACS integration:
 
 ## Requirements
 
-- Home Assistant `2024.12.0` or newer.
+- Home Assistant `2025.3.0` or newer.
 - HACS.
 - Nord Pool integration configured in Home Assistant.
 - Pylontech H3X Bridge installed from `https://github.com/shuffleznl/h3x-bridge`.
