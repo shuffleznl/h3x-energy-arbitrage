@@ -1,5 +1,11 @@
 # Pylontech H3X Energy Arbitrage
 
+## Release 0.7.6
+
+Requires H3X Bridge `0.4.2` or newer for the new dashboard diagnostics. Check ownership before and after each awaited EMS/SOC/power service call, including takeover inside service dispatch. Expected manual/weather preemption pauses the optimizer without an apply-error log; genuine failures still surface when no override owns control. Cached power/mode commands are cleared before resuming.
+
+Both dashboard copies now separate control intent, measured charging confirmation, the last competing entity and the actual Modbus failure. Two successive Charging-status and negative-power observations are needed for confirmation; this does not establish delivery of requested wattage. Real Home Assistant entity services, authenticated manual actions and takeover races are tested in CI. No physical inverter was connected during validation.
+
 ## Release 0.7.5
 
 Use H3X Bridge `0.4.1` or newer to repair the default override/weather control IDs on renamed devices. The dashboard now displays charging headroom and signed-reference read-back checks. The correct charge sign is negative: a Home Assistant input of `-10%` becomes raw S16 `-100`, or `0xFF9C`, at register 40901. The bridge reports when grid/power limits reduce that request to zero instead of silently displaying "manual force charge".
@@ -21,7 +27,7 @@ This repository contains one HACS integration:
 - Home Assistant `2025.3.0` or newer.
 - HACS.
 - Nord Pool integration configured in Home Assistant.
-- Pylontech H3X Bridge installed from `https://github.com/shuffleznl/h3x-bridge`.
+- Pylontech H3X Bridge `0.4.2` or newer installed from `https://github.com/shuffleznl/h3x-bridge`.
 - Optional but recommended for self-consumption optimization: Shelly Pro 3EM power sensors and an SMA Sunny Boy PV power sensor.
 
 The controller calls the Nord Pool `get_price_indices_for_date` service, falls back to `get_prices_for_date` when custom-resolution indices are empty, reads the Pylontech H3X Bridge sensors, and writes the Pylontech H3X Bridge EMS mode and charge/discharge power entities when automatic control is enabled.

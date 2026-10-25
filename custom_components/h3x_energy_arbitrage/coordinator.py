@@ -111,6 +111,10 @@ PV_ORIENTATION_PROFILE: dict[str, tuple[float, float]] = {
 }
 
 
+class BridgeOverrideActive(Exception):
+    """A higher-priority bridge controller preempted this dispatch."""
+
+
 @dataclass(slots=True)
 class PriceSlot:
     """One Nord Pool price interval."""
@@ -2210,20 +2214,44 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except (TypeError, ValueError):
             return None
 
-    async def _apply_decision(self, decision: Decision) -> None:
-        """Apply the control decision through Home Assistant entity services."""
+    def _bridge_control_owner(self) -> str | None:
+        """Resolve ownership from the actual configured reference's bridge."""
         from homeassistant.helpers import entity_registry as er
         registry = er.async_get(self.hass)
-        entity = registry.async_get(str(self._option(CONF_POWER_REF_ENTITY)))
+        entity = registry.async_get(str(self._option(CONF_POWER_REF_ENTITY)).strip())
         bridge = self.hass.data.get("pylontech_h3x_bridge", {}).get(
             entity.config_entry_id if entity else ""
         )
         override = getattr(bridge, "override", None)
-        if override and override.active:
-            decision.applied = False
-            decision.reason = f"{decision.reason}; bridge {override.diagnostics()['control_owner']} override active"
-            self._last_power_percent = None
-            self._last_ems_mode = None
+        return override.diagnostics()["control_owner"] if override and override.active else None
+
+    def _pause_for_bridge(self, decision: Decision, owner: str) -> None:
+        """Yield without treating an intentional override as a dispatch failure."""
+        decision.applied = False
+        decision.apply_error = None
+        decision.reason = f"{decision.reason}; bridge {owner} override active"
+        decision.attributes["control_owner"] = owner
+        self._last_power_percent = None
+        self._last_ems_mode = None
+
+    async def _async_call_bridge_service(self, domain, service, data, **kwargs):
+        """Recheck priority at every awaited write, including a service race."""
+        if owner := self._bridge_control_owner():
+            raise BridgeOverrideActive(owner)
+        try:
+            result = await self.hass.services.async_call(domain, service, data, **kwargs)
+        except HomeAssistantError:
+            if owner := self._bridge_control_owner():
+                raise BridgeOverrideActive(owner) from None
+            raise
+        if owner := self._bridge_control_owner():
+            raise BridgeOverrideActive(owner)
+        return result
+
+    async def _apply_decision(self, decision: Decision) -> None:
+        """Apply the control decision through Home Assistant entity services."""
+        if owner := self._bridge_control_owner():
+            self._pause_for_bridge(decision, owner)
             return
         try:
             await self._set_soc_limits(decision)
@@ -2234,6 +2262,8 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self._set_power_ref(0.0)
                 await self._set_ems_mode(str(self._option(CONF_IDLE_EMS_MODE)))
             decision.applied = True
+        except BridgeOverrideActive as err:
+            self._pause_for_bridge(decision, str(err))
         except Exception as err:  # pylint: disable=broad-except
             LOGGER.exception("Failed to apply H3X arbitrage decision")
             decision.applied = False
@@ -2253,7 +2283,7 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
 
         if charge_entity and self.hass.states.get(charge_entity) is not None:
-            await self.hass.services.async_call(
+            await self._async_call_bridge_service(
                 "number",
                 "set_value",
                 {"value": round(max_soc)},
@@ -2261,7 +2291,7 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 blocking=True,
             )
         if discharge_entity and self.hass.states.get(discharge_entity) is not None:
-            await self.hass.services.async_call(
+            await self._async_call_bridge_service(
                 "number",
                 "set_value",
                 {"value": round(floor_soc)},
@@ -2277,7 +2307,7 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         state = self.hass.states.get(entity_id)
         if state and state.state == mode and self._last_ems_mode == mode:
             return
-        await self.hass.services.async_call(
+        await self._async_call_bridge_service(
             "select",
             "select_option",
             {"option": mode},
@@ -2306,7 +2336,7 @@ class H3XArbitrageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._last_power_percent is not None and abs(self._last_power_percent - percent) < 0.2:
             return
 
-        await self.hass.services.async_call(
+        await self._async_call_bridge_service(
             "number",
             "set_value",
             {"value": percent},
