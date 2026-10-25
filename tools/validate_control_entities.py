@@ -155,8 +155,8 @@ def main() -> None:
             raise AssertionError(
                 f"usable capacity for {modules} modules differs by {deviation:.2f}%"
             )
-    if '"version": "0.7.4"' not in read(INTEGRATION / "manifest.json"):
-        raise AssertionError("manifest version must be 0.7.4")
+    if '"version": "0.7.5"' not in read(INTEGRATION / "manifest.json"):
+        raise AssertionError("manifest version must be 0.7.5")
     if 'DEFAULT_GRID_IMPORT_POWER_ENTITY = ""' not in const_source:
         raise AssertionError("grid monitoring must not default to a retired meter")
     if 'DEFAULT_GRID_IMPORT_AVERAGE_POWER_ENTITY = ""' not in const_source:

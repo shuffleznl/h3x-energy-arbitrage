@@ -1,5 +1,9 @@
 # Pylontech H3X Energy Arbitrage
 
+## Release 0.7.5
+
+Use H3X Bridge `0.4.1` or newer to repair the default override/weather control IDs on renamed devices. The dashboard now displays charging headroom and signed-reference read-back checks. The correct charge sign is negative: a Home Assistant input of `-10%` becomes raw S16 `-100`, or `0xFF9C`, at register 40901. The bridge reports when grid/power limits reduce that request to zero instead of silently displaying "manual force charge".
+
 ## Release 0.7.4
 
 Compatibility with [H3X Bridge 0.4.0](https://github.com/shuffleznl/h3x-bridge): manual force-charge and KNMI weather-reserve overrides take priority over optimizer commands. The optimizer pauses conflicting writes until the bridge returns to automatic control. Configure grid/KNMI/siren sources on the bridge; its new switches, charge-rate and warning-threshold selectors are included at the top of the packaged dashboard. Refresh a storage-mode dashboard by importing the updated packaged YAML after the HACS update.
