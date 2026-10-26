@@ -1,5 +1,14 @@
 # Pylontech H3X Energy Arbitrage
 
+## Release 0.7.7
+
+Use H3X Bridge `0.4.3` or newer for selectable slot clock basis and slot
+read-back diagnostics. Both dashboard copies distinguish requested rate, signed
+reference and measured battery power, and show the device/HA clock offset and
+last slot verification. These checks do not establish delivery of requested
+wattage. Reimport a storage-mode dashboard after updating; a YAML-mode
+dashboard referencing the packaged file follows package updates.
+
 ## Release 0.7.6
 
 Requires H3X Bridge `0.4.2` or newer for the new dashboard diagnostics. Check ownership before and after each awaited EMS/SOC/power service call, including takeover inside service dispatch. Expected manual/weather preemption pauses the optimizer without an apply-error log; genuine failures still surface when no override owns control. Cached power/mode commands are cleared before resuming.
@@ -27,7 +36,7 @@ This repository contains one HACS integration:
 - Home Assistant `2025.3.0` or newer.
 - HACS.
 - Nord Pool integration configured in Home Assistant.
-- Pylontech H3X Bridge `0.4.2` or newer installed from `https://github.com/shuffleznl/h3x-bridge`.
+- Pylontech H3X Bridge `0.4.3` or newer installed from `https://github.com/shuffleznl/h3x-bridge`.
 - Optional but recommended for self-consumption optimization: Shelly Pro 3EM power sensors and an SMA Sunny Boy PV power sensor.
 
 The controller calls the Nord Pool `get_price_indices_for_date` service, falls back to `get_prices_for_date` when custom-resolution indices are empty, reads the Pylontech H3X Bridge sensors, and writes the Pylontech H3X Bridge EMS mode and charge/discharge power entities when automatic control is enabled.
